@@ -38,8 +38,10 @@ class Job:
                 ("id", "url", "status", "stage", "progress", "title", "live", "error", "clips")} | {
                 "folder": str(self.out_dir)}
 
-    def add(self, start: float, end: float, score: float, path: Path, text: str = "") -> None:
+    def add(self, start: float, end: float, score: float, path: Path, text: str = "",
+            facecam: bool = False) -> None:
         self.clips.append({"start": start, "end": end, "score": round(score, 2), "text": text,
+                           "facecam": facecam,
                            "name": path.name, "file": f"/files/{self.id}/{path.name}"})
 
 
@@ -69,9 +71,9 @@ class App:
             count=max(1, min(20, int(body.get("count", 5)))),
             min_len=max(5.0, float(body.get("min_len", 15))),
             max_len=min(600.0, float(body.get("max_len", 60))),
-            vertical=bool(body.get("vertical")),
-            captions=bool(body.get("captions")),
-            max_height=int(body.get("quality", 720)),
+            captions=bool(body.get("captions", True)),
+            facecam=bool(body.get("facecam", True)),
+            max_height=int(body.get("quality", 1080)),
             auth=source.Auth(cookies_from_browser=browser),
         )
         s.max_len = max(s.max_len, s.min_len)
@@ -96,7 +98,7 @@ class App:
                 return
             _, results = pipeline.clip_url(job.url, job.out_dir, work, s, progress)
             for r in sorted(results, key=lambda r: -r.score):
-                job.add(r.start, r.end, r.score, r.path, r.text)
+                job.add(r.start, r.end, r.score, r.path, r.text, r.facecam)
             job.status, job.stage = "done", "Done" if results else "No standout moments found"
         except Exception as e:
             job.status, job.error = "error", friendly(e)
@@ -107,7 +109,7 @@ class App:
         job.live, job.stage, job.progress = True, "Watching the stream for big moments", None
         args = (["--cookies-from-browser", s.auth.cookies_from_browser]
                 if s.auth.cookies_from_browser else [])
-        live.run(job.url, job.out_dir, work, vertical=s.vertical, log=lambda *_: None,
+        live.run(job.url, job.out_dir, work, settings=s, log=lambda *_: None,
                  stop=job.stop, ytdlp_args=args,
                  on_clip=lambda c, p: job.add(c.start, c.end, c.score, p))
         job.status = "stopped" if job.stop.is_set() else "done"
@@ -230,7 +232,13 @@ def make_handler(app: App):
 
 def serve(base: Path, port: int = 8765, open_browser: bool = True) -> None:
     app = App(base)
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
+    class Server(ThreadingHTTPServer):
+        def handle_error(self, request, client_address):
+            import sys
+            if not isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+                super().handle_error(request, client_address)   # a player closing a stream is normal
+
+    httpd = Server(("127.0.0.1", port), make_handler(app))
     url = f"http://127.0.0.1:{port}/"
     print(f"YT Clipper is running at {url}\nClips are saved in {base / 'clips'}\nPress Ctrl-C to quit.")
     if open_browser:

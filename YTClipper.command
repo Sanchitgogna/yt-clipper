@@ -21,6 +21,6 @@ fi
 
 if [ ! -x .venv/bin/ytclipper ]; then
   echo "First run: setting up (takes a minute)..."
-  python3 -m venv .venv && .venv/bin/pip install -q -e '.[captions]' || { read -r -p "Setup failed. Press Enter to close."; exit 1; }
+  python3 -m venv .venv && .venv/bin/pip install -q -e . || { read -r -p "Setup failed. Press Enter to close."; exit 1; }
 fi
 exec .venv/bin/ytclipper ui

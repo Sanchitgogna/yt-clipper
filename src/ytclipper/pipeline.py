@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import captions, media, scoring, source
+from . import captions, facecam, media, render, scoring, source
 from .source import Auth, Progress
 
 PAD = 3  # extra seconds fetched around a section so the precise cut has room
@@ -27,12 +27,12 @@ class Settings:
     count: int = 5
     min_len: float = 15
     max_len: float = 60
-    vertical: bool = False
-    max_height: int = 720
+    max_height: int = 1080     # a vertical crop keeps about a third of the width: start sharp
     scenes: bool = False       # scene-cut detection needs the whole video: slow
     chat: bool = True
     fast: bool = True          # analyse audio first, then download only the clips
-    captions: bool = False     # burn what is said into the picture
+    captions: bool = True      # animated captions of what is said
+    facecam: bool = True       # put a streamer's webcam on top when there is one
     auth: Auth = field(default_factory=Auth)
 
 
@@ -43,6 +43,7 @@ class Result:
     score: float
     path: Path | None = None
     text: str = ""             # what is said in the clip, when captions exist
+    facecam: bool = False      # a webcam overlay was found and placed on top
 
 
 def _say(progress: Progress | None, stage: str, frac: float | None = None) -> None:
@@ -99,26 +100,23 @@ def _parallel(jobs: list, progress: Progress | None, stage: str) -> None:
             _say(progress, stage, done / len(jobs))
 
 
-def _subtitles(src: source.Source, r: Result, s: Settings) -> Path | None:
-    """Subtitle file for one clip: YouTube's captions if it has them, else speech-to-text."""
-    if not s.captions:
-        return None
-    length = r.end - r.start
-    words = [(t - r.start, w) for t, w in src.words() if r.start <= t < r.end and not w.startswith("[")]
+def _words(src: source.Source, part: Path, start: float, r: Result) -> list[captions.Word]:
+    """The clip's words: YouTube's captions if it has them, else speech-to-text."""
+    words = [(a - r.start, b - r.start, w) for a, b, w in src.words()
+             if r.start <= a < r.end and not w.startswith("[")]
     if not words:
-        words = captions.transcribe(src.path, r.start, length)
-        r.text = r.text or " ".join(w for _, w in words)
-    r.path.parent.mkdir(parents=True, exist_ok=True)
-    return captions.write_ass(words, length, r.path.with_suffix(".ass"), s.vertical)
+        words = captions.transcribe(part, start, r.end - r.start)
+        r.text = r.text or " ".join(w for *_, w in words)
+    return words
 
 
 def _cut(part: Path, start: float, src: source.Source, r: Result, s: Settings) -> None:
-    subs = _subtitles(src, r, s)
-    try:
-        media.cut(part, r.path, start, r.end - r.start, vertical=s.vertical, subtitles=subs)
-    finally:
-        if subs:
-            subs.unlink(missing_ok=True)
+    """Render one clip. `part` holds the footage, with the clip beginning at `start`."""
+    length = r.end - r.start
+    layout = facecam.detect(part, start, length) if s.facecam else facecam.Layout()
+    r.facecam = layout.cam is not None
+    words = _words(src, part, start, r) if s.captions else None
+    render.render(part, r.path, start, length, layout, words)
 
 
 def export(src: source.Source, results: list[Result], out_dir: Path, s: Settings,
@@ -126,9 +124,9 @@ def export(src: source.Source, results: list[Result], out_dir: Path, s: Settings
     """Cut clips out of a fully downloaded (or local) video."""
     for r, dst in zip(results, _names(src.title or src.path.stem, results, out_dir)):
         r.path = dst
-    _say(progress, "Cutting clips", 0)
+    _say(progress, "Making clips", 0)
     _parallel([lambda r=r: _cut(src.path, r.start, src, r, s) for r in results],
-              progress, "Cutting clips")
+              progress, "Making clips")
     return results
 
 
@@ -151,7 +149,7 @@ def export_sections(url: str, src: source.Source, results: list[Result], out_dir
 
     for r, dst in zip(results, _names(src.title, results, out_dir)):
         r.path = dst
-    stage = "Cutting clips and adding captions" if s.captions else "Cutting clips"
+    stage = "Making clips"
     _say(progress, stage, 0)
     _parallel([lambda a=a: trim(*a) for a in zip(results, parts, windows)], progress, stage)
     return results

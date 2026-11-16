@@ -13,9 +13,9 @@ from . import live, pipeline, source
 def _settings(args) -> pipeline.Settings:
     return pipeline.Settings(
         count=args.count, min_len=args.min_len, max_len=args.max_len,
-        vertical=getattr(args, "vertical", False), max_height=args.max_height,
+        max_height=args.max_height, facecam=not getattr(args, "no_facecam", False),
         scenes=args.scenes, chat=not args.no_chat, fast=not args.full_download,
-        captions=getattr(args, "captions", False),
+        captions=not getattr(args, "no_captions", False),
         auth=source.Auth(args.cookies, args.cookies_from_browser))
 
 
@@ -69,7 +69,8 @@ def cmd_live(args) -> None:
                                  post_roll=args.post_roll, cooldown=args.cooldown,
                                  warmup=args.warmup)
     print(f"watching {args.input} (Ctrl-C to stop) ...", file=sys.stderr)
-    clips = live.run(args.input, Path(args.out), Path(args.work_dir), detector, vertical=args.vertical)
+    settings = pipeline.Settings(captions=not args.no_captions, facecam=not args.no_facecam)
+    clips = live.run(args.input, Path(args.out), Path(args.work_dir), detector, settings=settings)
     print(f"{len(clips)} clip(s) written to {args.out}")
 
 
@@ -97,7 +98,7 @@ def main(argv: list[str] | None = None) -> None:
             sp.add_argument("-n", "--count", type=int, default=5, help="max clips (default 5)")
             sp.add_argument("--min-len", type=float, default=15, help="min clip seconds")
             sp.add_argument("--max-len", type=float, default=60, help="max clip seconds")
-            sp.add_argument("--max-height", type=int, default=720, help="download resolution cap")
+            sp.add_argument("--max-height", type=int, default=1080, help="download resolution cap")
             sp.add_argument("--no-chat", action="store_true", help="skip chat replay download")
             sp.add_argument("--cookies", help="cookies.txt of your YouTube login (if YouTube asks to sign in)")
             sp.add_argument("--cookies-from-browser", metavar="BROWSER",
@@ -107,6 +108,11 @@ def main(argv: list[str] | None = None) -> None:
             sp.add_argument("--full-download", action="store_true",
                             help="download the whole video instead of only the clips")
 
+    def looks(sp):
+        sp.add_argument("--no-captions", action="store_true", help="leave the animated captions off")
+        sp.add_argument("--no-facecam", action="store_true",
+                        help="do not look for a streamer's webcam to put on top")
+
     a = sub.add_parser("analyze", help="list the best moments without cutting")
     common(a, True)
     a.add_argument("--json", action="store_true")
@@ -115,14 +121,13 @@ def main(argv: list[str] | None = None) -> None:
     c = sub.add_parser("clip", help="find the best moments of a video and cut them")
     common(c, True)
     c.add_argument("-o", "--out", default="clips")
-    c.add_argument("--vertical", action="store_true", help="centre-crop to 9:16 (1080x1920)")
-    c.add_argument("--captions", action="store_true", help="burn what is said into the clips")
+    looks(c)
     c.set_defaults(func=cmd_clip)
 
     l = sub.add_parser("live", help="watch a livestream and clip moments as they happen")
     common(l, False)
     l.add_argument("-o", "--out", default="clips")
-    l.add_argument("--vertical", action="store_true")
+    looks(l)
     l.add_argument("--threshold", type=float, default=4.0, help="spike sensitivity (lower = more clips)")
     l.add_argument("--pre-roll", type=float, default=20, help="seconds kept before the moment")
     l.add_argument("--post-roll", type=float, default=10, help="seconds kept after the moment")

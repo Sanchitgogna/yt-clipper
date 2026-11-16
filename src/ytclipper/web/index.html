@@ -65,10 +65,9 @@
     background: var(--accent); border-radius: 4px; padding: 1px 6px; margin-right: 8px; vertical-align: 2px; }
   #error { color: var(--accent); margin-top: 10px; overflow-wrap: anywhere; }
 
-  #clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 22px; }
+  #clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-top: 22px; }
   .clip { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
-  .clip video { width: 100%; aspect-ratio: 16/9; background: #000; display: block; }
-  .clip.tall video { aspect-ratio: 9/16; }
+  .clip video { width: 100%; aspect-ratio: 9/16; background: #000; display: block; }
   .meta { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
   .meta-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
   .rank { font-weight: 700; }
@@ -83,7 +82,7 @@
 <main>
   <header>
     <h1>YT <span>Clipper</span></h1>
-    <p>Paste a YouTube video or livestream link. The best moments come back as clips.</p>
+    <p>Paste a YouTube video or livestream link. The best moments come back as vertical clips.</p>
   </header>
 
   <form id="form">
@@ -104,14 +103,14 @@
             <option value="30,120">Long (30s–2min)</option>
           </select>
         </label>
-        <label>Shape
-          <select id="vertical"><option value="">Original (wide)</option><option value="1">Vertical 9:16 for Shorts</option></select>
-        </label>
         <label>Captions
-          <select id="captions"><option value="">Off</option><option value="1">On the video</option></select>
+          <select id="captions"><option value="1">Animated captions</option><option value="">Off</option></select>
+        </label>
+        <label>Streamer's facecam
+          <select id="facecam"><option value="1">On top if found</option><option value="">Ignore</option></select>
         </label>
         <label>Quality
-          <select id="quality"><option value="480">480p (fastest)</option><option value="720" selected>720p</option><option value="1080">1080p</option></select>
+          <select id="quality"><option value="720">Faster (720p source)</option><option value="1080" selected>Sharp (1080p source)</option></select>
         </label>
         <label>Use my YouTube login
           <select id="browser">
@@ -169,7 +168,7 @@ $("form").addEventListener("submit", async e => {
   try {
     job = await api("/api/jobs", {
       url: $("url").value, count: +$("count").value, min_len, max_len,
-      vertical: !!$("vertical").value, captions: !!$("captions").value, quality: +$("quality").value, browser: $("browser").value});
+      captions: !!$("captions").value, facecam: !!$("facecam").value, quality: +$("quality").value, browser: $("browser").value});
     render(job);
     timer = setInterval(poll, 1000);
   } catch (err) {
@@ -209,13 +208,13 @@ function card(c, rank, live) {
   el.className = "clip";
   const v = document.createElement("video");
   v.controls = true; v.preload = "metadata"; v.src = c.file; v.playsInline = true;
-  v.addEventListener("loadedmetadata", () => { if (v.videoHeight > v.videoWidth) el.classList.add("tall"); });
   const meta = document.createElement("div"); meta.className = "meta";
   const top = document.createElement("div"); top.className = "meta-top";
   const r = document.createElement("span"); r.className = "rank"; r.textContent = live ? `Moment ${rank}` : `#${rank}`;
   const t = document.createElement("span"); t.className = "time";
   t.textContent = `${fmt(c.start)} – ${fmt(c.end)} · ${Math.round(c.end - c.start)}s`;
   top.append(r, t); meta.append(top);
+  if (c.facecam) { const f = document.createElement("div"); f.className = "time"; f.textContent = "Facecam on top"; meta.append(f); }
   if (c.text) { const p = document.createElement("div"); p.className = "text"; p.textContent = c.text; meta.append(p); }
   const a = document.createElement("a"); a.href = c.file + "?dl=1"; a.textContent = "Download";
   meta.append(a); el.append(v, meta);

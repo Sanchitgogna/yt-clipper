@@ -20,6 +20,18 @@ def duration(path: str | Path) -> float:
     return float(out)
 
 
+def size(path: str | Path) -> tuple[int, int]:
+    """Displayed width and height of the first video stream."""
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+         "stream=width,height:stream_side_data=rotation", "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True, check=True,
+    ).stdout.split()[0].split(",")
+    w, h = int(out[0]), int(out[1])
+    rotated = len(out) > 2 and out[2].lstrip("-") in {"90", "270"}
+    return (h, w) if rotated else (w, h)
+
+
 def audio_energy(path: str | Path) -> np.ndarray:
     """Loudness (dB RMS) of the audio track, one value per second."""
     proc = subprocess.Popen(
@@ -60,33 +72,3 @@ def scene_changes(path: str | Path, n_seconds: int, threshold: float = 0.3) -> n
         if t < n_seconds:
             counts[t] += 1
     return counts
-
-
-def cut(
-    src: str | Path,
-    dst: str | Path,
-    start: float,
-    length: float,
-    vertical: bool = False,
-    concat_list: bool = False,
-    subtitles: Path | None = None,
-) -> Path:
-    """Cut [start, start+length) out of src, re-encoding for frame-accurate edges."""
-    dst = Path(dst)
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    cmd = ["ffmpeg", "-v", "error", "-y"]
-    if concat_list:
-        cmd += ["-f", "concat", "-safe", "0"]
-    cmd += ["-ss", f"{start:.3f}", "-i", str(src), "-t", f"{length:.3f}"]
-    filters = []
-    if vertical:  # centre-crop to 9:16 for Shorts / Reels / TikTok
-        filters.append("crop=ih*9/16:ih,scale=1080:1920")
-    if subtitles:  # after the crop, so captions are never cut off
-        escaped = str(subtitles).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
-        filters.append(f"ass='{escaped}'")
-    if filters:
-        cmd += ["-vf", ",".join(filters)]
-    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-            "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(dst)]
-    subprocess.run(cmd, check=True)
-    return dst

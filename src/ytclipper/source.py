@@ -30,7 +30,7 @@ class Source:
     captions_path: Path | None = None
     url: str | None = None
 
-    def words(self) -> list[tuple[float, str]]:
+    def words(self) -> list[tuple[float, float, str]]:
         return load_captions(self.captions_path) if self.captions_path else []
 
 
@@ -186,19 +186,31 @@ def chat_signal(chat_path: Path, n_seconds: int) -> np.ndarray:
     return out
 
 
-def load_captions(path: Path) -> list[tuple[float, str]]:
-    """(time, word) pairs from a YouTube json3 caption file."""
+def load_captions(path: Path) -> list[tuple[float, float, str]]:
+    """(start, end, word) from a YouTube json3 caption file."""
     try:
         events = json.loads(path.read_text(encoding="utf-8")).get("events", [])
     except (OSError, ValueError):
         return []
-    words = []
+    pieces: list[tuple[float, float, str]] = []      # start, latest possible end, text
     for ev in events:
-        t0 = ev.get("tStartMs", 0)
-        for seg in ev.get("segs") or []:
-            text = seg.get("utf8", "").strip()
-            if text:
-                words.append(((t0 + seg.get("tOffsetMs", 0)) / 1000, text))
+        t0 = ev.get("tStartMs", 0) / 1000
+        ev_end = t0 + ev.get("dDurationMs", 0) / 1000
+        segs = [(t0 + seg.get("tOffsetMs", 0) / 1000, seg.get("utf8", "").strip())
+                for seg in ev.get("segs") or []]
+        segs = [(t, text) for t, text in segs if text]
+        for i, (t, text) in enumerate(segs):
+            pieces.append((t, segs[i + 1][0] if i + 1 < len(segs) else max(ev_end, t), text))
+    words = []
+    for i, (t, limit, text) in enumerate(pieces):
+        if i + 1 < len(pieces):
+            limit = min(limit, pieces[i + 1][0]) if pieces[i + 1][0] > t else limit
+        parts = [text] if text.startswith("[") else text.split()
+        # manual captions come a line at a time: share the line's time between its words
+        span = max(0.0, limit - t) if len(parts) > 1 else min(max(0.0, limit - t), 0.8)
+        step = span / len(parts) if span else 0.3
+        for j, part in enumerate(parts):
+            words.append((t + j * step, t + (j + 1) * step, part))
     return words
 
 
@@ -207,10 +219,10 @@ _HYPE = {"wow", "whoa", "omg", "insane", "crazy", "unbelievable", "incredible", 
          "clutch", "goal", "amazing", "impossible", "unreal", "wtf", "yooo", "nooo"}
 
 
-def speech_signal(words: list[tuple[float, str]], n_seconds: int) -> np.ndarray:
+def speech_signal(words: list[tuple[float, float, str]], n_seconds: int) -> np.ndarray:
     """Fast talking, hype words and audible reactions ([Laughter], [Applause]) per second."""
     out = np.zeros(n_seconds)
-    for t, text in words:
+    for t, _, text in words:
         i = int(t)
         if not 0 <= i < n_seconds:
             continue
@@ -224,7 +236,7 @@ def speech_signal(words: list[tuple[float, str]], n_seconds: int) -> np.ndarray:
     return out
 
 
-def text_between(words: list[tuple[float, str]], start: float, end: float, limit: int = 400) -> str:
-    text = " ".join(w for t, w in words if start <= t < end and not w.startswith("["))
+def text_between(words: list[tuple[float, float, str]], start: float, end: float, limit: int = 400) -> str:
+    text = " ".join(w for t, _, w in words if start <= t < end and not w.startswith("["))
     text = re.sub(r"\s+", " ", text).strip()
     return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "…"

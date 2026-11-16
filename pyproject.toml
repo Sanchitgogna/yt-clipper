@@ -8,12 +8,17 @@ version = "0.1.0"
 description = "Automatically find and clip the best moments from YouTube videos and livestreams"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.24", "yt-dlp[default]>=2025.11"]
+dependencies = [
+    "numpy>=1.24",
+    "yt-dlp[default]>=2025.11",
+    "pillow>=10",
+    "opencv-python-headless>=4.8",
+    "faster-whisper>=1.0",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 mcp = ["mcp>=1.2"]
-captions = ["faster-whisper>=1.0"]
 
 [project.scripts]
 ytclipper = "ytclipper.cli:main"

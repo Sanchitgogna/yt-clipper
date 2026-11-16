@@ -56,6 +56,7 @@ def test_speech_signal_and_transcript(tmp_path):
     sig = source.speech_signal(words, 12)
     assert sig[5] == 0 and sig[9] > sig[1] > 0
     assert source.text_between(words, 0, 12) == "hello there wow insane!"
+    assert all(a < b for a, b, _ in words) and words[0][1] <= words[1][0] + 1e-9
 
 
 def test_snap_to_quiet_moves_edges_to_silence():
@@ -65,14 +66,19 @@ def test_snap_to_quiet_moves_edges_to_silence():
     assert (c.start, c.end) == (19, 42)
 
 
-def test_caption_grouping_and_file(tmp_path):
+def test_caption_groups_and_frames():
     from ytclipper import captions
-    words = [(0.2, "This"), (0.5, "is"), (0.8, "a"), (1.0, "really"), (1.3, "long"), (1.6, "sentence."),
-             (5.0, "Later")]
-    lines = captions.group(words, 8.0, max_chars=12)
-    assert [t for *_, t in lines] == ["This is a", "really long", "sentence.", "Later"]
-    assert all(a < b for a, b, _ in lines) and lines[2][1] <= 1.6 + 2.5   # does not linger in silence
-    assert lines[0][1] <= lines[1][0]                                     # phrases never overlap
-    out = captions.write_ass(words, 8.0, tmp_path / "c.ass", vertical=True)
-    assert "Dialogue: 0,0:00:00.20," in out.read_text()
-    assert captions.write_ass([], 8.0, tmp_path / "e.ass", vertical=False) is None
+    words = [(0.2, 0.5, "This"), (0.5, 0.8, "is"), (0.8, 1.0, "a"), (1.0, 1.3, "really"),
+             (1.3, 1.6, "long"), (1.6, 2.0, "sentence."), (5.0, 5.4, "Later")]
+    groups = captions.group(words, 8.0)
+    assert [" ".join(w[2] for w in g.words) for g in groups] == ["This is a", "really long", "sentence.", "Later"]
+    assert [g.cut for g in groups] == [True, True, False, False]
+    assert all(a.end <= b.start for a, b in zip(groups, groups[1:]))     # one phrase at a time
+    assert groups[2].end <= 2.0 + 0.5                                    # does not linger in silence
+    r = captions.Renderer(words, 8.0)
+    size = (r.width, captions.STRIP_H)
+    assert r.frame(int(3.5 * r.fps)) == r.blank
+    from PIL import Image
+    shown = Image.frombytes("RGBA", size, r.frame(int(0.4 * r.fps)))
+    red = [p for p in shown.getdata() if p[0] > 200 and p[1] < 80 and p[3] > 200]
+    assert len(red) > 500                                                # the highlight box is up

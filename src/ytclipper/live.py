@@ -66,20 +66,27 @@ class Segment:
 
 
 def cut_from_segments(segments: list[Segment], clip: scoring.Clip, dst: Path,
-                      vertical: bool = False) -> Path | None:
+                      settings=None) -> Path | None:
+    from . import pipeline, source
+
+    settings = settings or pipeline.Settings()
     used = [s for s in segments
             if s.start < clip.end and s.start + s.length > clip.start and s.path.exists()]
     if not used:
         return None
-    listing = dst.with_suffix(".txt")
-    listing.parent.mkdir(parents=True, exist_ok=True)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    listing, joined = dst.with_suffix(".txt"), dst.with_suffix(".joined.ts")
     listing.write_text("".join(f"file '{s.path.resolve()}'\n" for s in used))
     try:
-        offset = max(0.0, clip.start - used[0].start)
-        return media.cut(listing, dst, offset, clip.end - max(clip.start, used[0].start),
-                         vertical=vertical, concat_list=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0",
+                        "-i", str(listing), "-c", "copy", str(joined)], check=True)
+        start = max(clip.start, used[0].start)
+        result = pipeline.Result(start, clip.end, clip.score, path=dst)
+        pipeline._cut(joined, start - used[0].start, source.Source(path=joined), result, settings)
+        return dst
     finally:
         listing.unlink(missing_ok=True)
+        joined.unlink(missing_ok=True)
 
 
 def start_recorder(url: str, seg_dir: Path, segment_time: int = 15,
@@ -102,7 +109,7 @@ def start_recorder(url: str, seg_dir: Path, segment_time: int = 15,
 
 
 def run(url: str, out_dir: Path, work_dir: Path, detector: LiveDetector | None = None,
-        vertical: bool = False, keep: float = 900, poll: float = 2.0, log=print,
+        settings=None, keep: float = 900, poll: float = 2.0, log=print,
         stop=None, on_clip=None, ytdlp_args: list[str] | None = None) -> list[Path]:
     """Record `url` until it ends (or Ctrl-C), writing clips to out_dir as they happen."""
     detector = detector or LiveDetector()
@@ -129,7 +136,7 @@ def run(url: str, out_dir: Path, work_dir: Path, detector: LiveDetector | None =
                 clock += seg.length
                 for clip in detector.update(energy):
                     dst = out_dir / f"live_{int(clip.start):06d}s.mp4"
-                    if cut_from_segments(segments, clip, dst, vertical):
+                    if cut_from_segments(segments, clip, dst, settings):
                         written.append(dst)
                         if on_clip:
                             on_clip(clip, dst)

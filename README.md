@@ -23,10 +23,18 @@ ytclipper ui
 Clips are saved in `~/YTClipper/clips`. Livestream links are detected automatically: the
 app watches the stream and adds clips as big moments happen, until you press Stop.
 
-**Captions:** set Captions to "On the video" in Options (or `--captions`) to burn what is
-said into each clip. YouTube's own captions are used when the video has them; otherwise the
-speech is transcribed on your computer (`pip install -e '.[captions]'`, included by the Mac
-launcher).
+Every clip is vertical, 1080×1920, ready for Shorts, Reels and TikTok.
+
+**Facecam on top.** If the streamer's webcam is in the picture, it is found automatically
+and placed across the top of the clip with the gameplay underneath. Detection looks for a
+face that stays in one spot while the game moves, framed by edges that do not move either.
+Without a facecam the clip is a centre crop (shifted to keep a person on screen in frame).
+
+**Animated captions.** Words are drawn onto the clip at full resolution, a few at a time,
+with a red box sweeping in behind the word being spoken — the look and timing of
+[HyperFrames](https://github.com/heygen-com/hyperframes)' `caption-highlight` style.
+YouTube's own captions are used when the video has them; otherwise the speech is
+transcribed on your computer.
 
 If YouTube answers "Sign in to confirm you're not a bot" (common on servers and VPNs), open
 Options and choose your browser under "Use my YouTube login".
@@ -73,15 +81,15 @@ Claude Desktop (`claude_desktop_config.json`):
 {"mcpServers": {"ytclipper": {"command": "/full/path/to/yt-clipper/.venv/bin/ytclipper", "args": ["mcp"]}}}
 ```
 
-Then ask: *"Find the funniest moments in <link> and make vertical clips of the best three."*
+Then ask: *"Find the funniest moments in <link> and make clips of the best three."*
 
 Tools: `find_highlights(url, count, min_seconds, max_seconds)` and
-`export_clips(url, clips, vertical)`.
+`export_clips(url, clips, captions, facecam)`.
 
 ## Command line
 
 ```bash
-ytclipper clip "https://www.youtube.com/watch?v=VIDEO_ID" -n 5 -o clips/ --vertical
+ytclipper clip "https://www.youtube.com/watch?v=VIDEO_ID" -n 5 -o clips/
 ```
 
 ```bash
@@ -98,9 +106,11 @@ Every command also accepts a local media file instead of a URL.
 
 - `server.py`, `web/index.html` – the browser app
 - `mcp_server.py` – tools for Claude
-- `captions.py` – speech-to-text and burned-in captions
+- `captions.py` – speech-to-text and the animated caption renderer
+- `facecam.py` – finds a streamer's webcam overlay
+- `render.py` – vertical layout and encoding
 - `source.py` – yt-dlp downloads; heatmap, chat and caption signals
-- `media.py` – ffmpeg: loudness, scene cuts, cutting
+- `media.py` – ffmpeg: loudness, scene cuts
 - `scoring.py` – normalise/combine signals, pick and snap clip windows
 - `pipeline.py` – analyse + export for finished videos
 - `live.py` – segment recorder and online spike detector for livestreams
@@ -116,6 +126,10 @@ pytest
 
 - Live chat rate as a signal in live mode (currently loudness only)
 - Auto-generated titles
-- Smart vertical reframing (follow the face/action instead of centre crop)
+- Round or borderless (green-screen) facecams, which have no frame to detect
+- Follow the action in the gameplay crop instead of a fixed centre crop
 
 Only clip content you have the rights to use.
+
+The caption font is Montserrat (SIL Open Font License); the face detector is OpenCV's
+YuNet model (MIT). Both are bundled in `src/ytclipper/assets`.

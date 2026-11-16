@@ -46,20 +46,19 @@ def build():
             for r in sorted(results, key=lambda r: -r.score)]}
 
     @mcp.tool()
-    def export_clips(url: str, clips: list[dict], vertical: bool = False, captions: bool = False,
+    def export_clips(url: str, clips: list[dict], captions: bool = True, facecam: bool = True,
                      browser_login: str = "") -> list[str]:
-        """Cut clips out of a video. `clips` is a list of {"start": s, "end": s} in seconds
-        (from find_highlights, or any ranges you choose). `vertical` centre-crops to 9:16
-        for Shorts/Reels/TikTok; `captions` burns the spoken words into the picture. Returns the paths of the written .mp4 files.
+        """Cut vertical 1080x1920 clips (Shorts/Reels/TikTok) out of a video. `clips` is a list
+        of {"start": s, "end": s} in seconds (from find_highlights, or any ranges you choose).
+        `captions` adds animated word-by-word captions; `facecam` puts a streamer's webcam on
+        top of the gameplay when one is found. Returns the paths of the written .mp4 files.
         """
-        s = pipeline.Settings(vertical=vertical, captions=captions,
+        s = pipeline.Settings(captions=captions, facecam=facecam,
                               auth=source.Auth(cookies_from_browser=browser_login or None))
         work = _work(url)
         info = source.probe(url, work, s.auth)
         title = info.get("title") or "clip"
         src = source.Source(path=work / "none", title=title, url=url)
-        if captions:  # the audio and YouTube captions supply the words
-            src = source.fetch(url, work, auth=s.auth, audio_only=True, chat=False)
         results = [pipeline.Result(float(c["start"]), float(c["end"]), -i) for i, c in enumerate(clips)]
         out = BASE / "clips" / pipeline.slug(title)
         done = pipeline.export_sections(url, src, results, out, work, s)
