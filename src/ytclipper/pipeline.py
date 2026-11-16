@@ -12,8 +12,9 @@ from . import media, scoring, source
 
 def analyze(src: source.Source, scenes: bool = True) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Return (highlight score per second, the raw signals it was built from)."""
-    signals: dict[str, np.ndarray] = {"audio": media.audio_energy(src.path)}
-    n = max(len(signals["audio"]), int(media.duration(src.path)))
+    audio = media.audio_energy(src.path)
+    n = max(len(audio), int(media.duration(src.path)))
+    signals: dict[str, np.ndarray] = {"audio": audio} if len(audio) else {}  # silent video
     if scenes:
         signals["scenes"] = media.scene_changes(src.path, n)
     if src.heatmap:
@@ -22,6 +23,8 @@ def analyze(src: source.Source, scenes: bool = True) -> tuple[np.ndarray, dict[s
         chat = source.chat_signal(src.chat_path, n)
         if chat.sum() > 0:
             signals["chat"] = chat
+    if not signals:
+        return np.zeros(n), signals
     return scoring.combine(signals), signals
 
 

@@ -19,7 +19,8 @@ the build-up and trimmed to your length limits.
 
 ## Install
 
-Needs Python 3.10+ and `ffmpeg` on your PATH.
+Needs Python 3.10+, `ffmpeg`, and a JavaScript runtime (`node` or `deno`) on your PATH —
+yt-dlp uses it to read YouTube's formats.
 
 ```bash
 pip install -e .
@@ -52,6 +53,9 @@ ytclipper live "https://www.youtube.com/watch?v=LIVE_ID" -o clips/ --threshold 4
 ```
 
 Every command also accepts a local media file instead of a URL.
+
+If YouTube answers "Sign in to confirm you're not a bot" (common on servers and VPNs),
+run from a home connection or pass your own login with `--cookies-from-browser chrome`.
 
 ## Layout
 

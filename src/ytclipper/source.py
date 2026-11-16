@@ -22,7 +22,8 @@ def is_url(s: str) -> bool:
     return s.startswith(("http://", "https://"))
 
 
-def fetch(url: str, workdir: Path, max_height: int = 720, chat: bool = True) -> Source:
+def fetch(url: str, workdir: Path, max_height: int = 720, chat: bool = True,
+          cookies: str | None = None, cookies_from_browser: str | None = None) -> Source:
     import yt_dlp
 
     workdir.mkdir(parents=True, exist_ok=True)
@@ -33,7 +34,13 @@ def fetch(url: str, workdir: Path, max_height: int = 720, chat: bool = True) -> 
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
+        # YouTube needs a JavaScript runtime to resolve formats; use whichever is installed
+        "js_runtimes": {"deno": {}, "node": {}, "bun": {}},
     }
+    if cookies:
+        opts["cookiefile"] = cookies
+    if cookies_from_browser:
+        opts["cookiesfrombrowser"] = (cookies_from_browser,)
     if chat:
         opts |= {"writesubtitles": True, "subtitleslangs": ["live_chat"]}
     with yt_dlp.YoutubeDL(opts) as ydl:

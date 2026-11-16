@@ -12,7 +12,8 @@ def _load(args) -> source.Source:
     if source.is_url(args.input):
         print(f"downloading {args.input} ...", file=sys.stderr)
         try:
-            return source.fetch(args.input, Path(args.work_dir), args.max_height, chat=not args.no_chat)
+            return source.fetch(args.input, Path(args.work_dir), args.max_height, chat=not args.no_chat,
+                                cookies=args.cookies, cookies_from_browser=args.cookies_from_browser)
         except Exception as e:  # yt-dlp raises many types; show the reason, not a traceback
             sys.exit(f"download failed: {e}")
     path = Path(args.input)
@@ -75,6 +76,9 @@ def main(argv: list[str] | None = None) -> None:
             sp.add_argument("--max-len", type=float, default=60, help="max clip seconds")
             sp.add_argument("--max-height", type=int, default=720, help="download resolution cap")
             sp.add_argument("--no-chat", action="store_true", help="skip chat replay download")
+            sp.add_argument("--cookies", help="cookies.txt of your YouTube login (if YouTube asks to sign in)")
+            sp.add_argument("--cookies-from-browser", metavar="BROWSER",
+                            help="use your login from a browser, e.g. chrome or firefox")
             sp.add_argument("--no-scenes", action="store_true", help="skip scene-cut detection (faster)")
 
     a = sub.add_parser("analyze", help="list the best moments without cutting")

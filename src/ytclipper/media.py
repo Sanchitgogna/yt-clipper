@@ -23,9 +23,9 @@ def duration(path: str | Path) -> float:
 def audio_energy(path: str | Path) -> np.ndarray:
     """Loudness (dB RMS) of the audio track, one value per second."""
     proc = subprocess.Popen(
-        ["ffmpeg", "-v", "error", "-i", str(path), "-vn", "-ac", "1",
+        ["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:a:0?", "-ac", "1",
          "-ar", str(SAMPLE_RATE), "-f", "s16le", "-"],
-        stdout=subprocess.PIPE,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,  # no audio track -> empty result
     )
     chunk = SAMPLE_RATE * 2  # one second of 16-bit mono
     values = []

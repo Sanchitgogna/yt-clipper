@@ -89,7 +89,8 @@ def start_recorder(url: str, seg_dir: Path, segment_time: int = 15) -> list[subp
     seg_args = ["-c", "copy", "-f", "segment", "-segment_time", str(segment_time),
                 "-reset_timestamps", "1", pattern]
     if url.startswith(("http://", "https://")):
-        dl = subprocess.Popen(["yt-dlp", "-q", "--no-warnings", "-f", "b[height<=720]/b",
+        dl = subprocess.Popen(["yt-dlp", "-q", "--no-warnings", "--js-runtimes", "node",
+                               "--js-runtimes", "deno", "-f", "b[height<=720]/b",
                                "-o", "-", url], stdout=subprocess.PIPE)
         ff = subprocess.Popen(["ffmpeg", "-v", "error", "-i", "pipe:0", *seg_args], stdin=dl.stdout)
         assert dl.stdout is not None
