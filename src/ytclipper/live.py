@@ -82,7 +82,8 @@ def cut_from_segments(segments: list[Segment], clip: scoring.Clip, dst: Path,
         listing.unlink(missing_ok=True)
 
 
-def start_recorder(url: str, seg_dir: Path, segment_time: int = 15) -> list[subprocess.Popen]:
+def start_recorder(url: str, seg_dir: Path, segment_time: int = 15,
+                   ytdlp_args: list[str] | None = None) -> list[subprocess.Popen]:
     """Record a stream into seg_dir as numbered .ts segments."""
     seg_dir.mkdir(parents=True, exist_ok=True)
     pattern = str(seg_dir / "seg_%06d.ts")
@@ -90,7 +91,7 @@ def start_recorder(url: str, seg_dir: Path, segment_time: int = 15) -> list[subp
                 "-reset_timestamps", "1", pattern]
     if url.startswith(("http://", "https://")):
         dl = subprocess.Popen(["yt-dlp", "-q", "--no-warnings", "--js-runtimes", "node",
-                               "--js-runtimes", "deno", "-f", "b[height<=720]/b",
+                               "--js-runtimes", "deno", *(ytdlp_args or []), "-f", "b[height<=720]/b",
                                "-o", "-", url], stdout=subprocess.PIPE)
         ff = subprocess.Popen(["ffmpeg", "-v", "error", "-i", "pipe:0", *seg_args], stdin=dl.stdout)
         assert dl.stdout is not None
@@ -101,13 +102,14 @@ def start_recorder(url: str, seg_dir: Path, segment_time: int = 15) -> list[subp
 
 
 def run(url: str, out_dir: Path, work_dir: Path, detector: LiveDetector | None = None,
-        vertical: bool = False, keep: float = 900, poll: float = 2.0, log=print) -> list[Path]:
+        vertical: bool = False, keep: float = 900, poll: float = 2.0, log=print,
+        stop=None, on_clip=None, ytdlp_args: list[str] | None = None) -> list[Path]:
     """Record `url` until it ends (or Ctrl-C), writing clips to out_dir as they happen."""
     detector = detector or LiveDetector()
     seg_dir = work_dir / "segments"
     for old in seg_dir.glob("seg_*.ts") if seg_dir.exists() else []:
         old.unlink()
-    procs = start_recorder(url, seg_dir)
+    procs = start_recorder(url, seg_dir, ytdlp_args=ytdlp_args)
     segments: list[Segment] = []
     done: set[Path] = set()
     written: list[Path] = []
@@ -129,10 +131,12 @@ def run(url: str, out_dir: Path, work_dir: Path, detector: LiveDetector | None =
                     dst = out_dir / f"live_{int(clip.start):06d}s.mp4"
                     if cut_from_segments(segments, clip, dst, vertical):
                         written.append(dst)
+                        if on_clip:
+                            on_clip(clip, dst)
                         log(f"clip  {fmt(clip.start)}-{fmt(clip.end)}  score {clip.score:.1f}  -> {dst}")
                 while segments and segments[0].start + segments[0].length < clock - keep:
                     segments.pop(0).path.unlink(missing_ok=True)
-            if not running:
+            if not running or (stop is not None and stop.is_set()):
                 break
             time.sleep(poll)
     except KeyboardInterrupt:

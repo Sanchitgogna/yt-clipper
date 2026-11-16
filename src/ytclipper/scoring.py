@@ -8,7 +8,7 @@ import numpy as np
 
 # How much each signal counts. Audience signals (what viewers replayed, when chat
 # exploded) are better evidence of a "good scene" than raw loudness or cuts.
-DEFAULT_WEIGHTS = {"heatmap": 1.5, "chat": 1.5, "audio": 1.0, "scenes": 0.5}
+DEFAULT_WEIGHTS = {"heatmap": 1.5, "chat": 1.5, "audio": 1.0, "speech": 1.0, "scenes": 0.5}
 # Smallest spread treated as meaningful, so a very steady signal does not turn
 # its own tiny wobble into "peaks" (audio is in dB).
 MIN_SCALE = {"audio": 1.5}
@@ -111,3 +111,22 @@ def pick_clips(
         lo, hi = max(0, int(start - gap)), min(n, int(np.ceil(end + gap)))
         remaining[lo:hi] = -np.inf
     return sorted(clips, key=lambda c: c.start)
+
+
+def snap_to_quiet(clips: list[Clip], audio: np.ndarray, min_len: float, max_len: float,
+                  reach: int = 2) -> list[Clip]:
+    """Nudge clip edges to the quietest nearby second so cuts land between
+    sentences or beats rather than in the middle of one."""
+    n = len(audio)
+
+    def quietest(t: float) -> float:
+        lo, hi = max(0, int(t) - reach), min(n, int(t) + reach + 1)
+        return float(lo + int(np.argmin(audio[lo:hi]))) if hi > lo else t
+
+    out = []
+    for c in clips:
+        start, end = quietest(c.start), min(float(n), quietest(c.end) + 1)
+        if not (min_len <= end - start <= max_len and start <= c.peak < end):
+            start, end = c.start, c.end
+        out.append(Clip(start, end, c.peak, c.score))
+    return out

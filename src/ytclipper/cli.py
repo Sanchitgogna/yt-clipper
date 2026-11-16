@@ -1,3 +1,5 @@
+"""Find and clip the best moments of YouTube videos and livestreams."""
+
 from __future__ import annotations
 
 import argparse
@@ -5,52 +7,60 @@ import json
 import sys
 from pathlib import Path
 
-from . import live, pipeline, scoring, source
+from . import live, pipeline, source
 
 
-def _load(args) -> source.Source:
-    if source.is_url(args.input):
-        print(f"downloading {args.input} ...", file=sys.stderr)
-        try:
-            return source.fetch(args.input, Path(args.work_dir), args.max_height, chat=not args.no_chat,
-                                cookies=args.cookies, cookies_from_browser=args.cookies_from_browser)
-        except Exception as e:  # yt-dlp raises many types; show the reason, not a traceback
-            sys.exit(f"download failed: {e}")
-    path = Path(args.input)
-    if not path.exists():
-        sys.exit(f"no such file: {path}")
-    return source.Source(path=path, title=path.stem)
+def _settings(args) -> pipeline.Settings:
+    return pipeline.Settings(
+        count=args.count, min_len=args.min_len, max_len=args.max_len,
+        vertical=getattr(args, "vertical", False), max_height=args.max_height,
+        scenes=args.scenes, chat=not args.no_chat, fast=not args.full_download,
+        auth=source.Auth(args.cookies, args.cookies_from_browser))
 
 
-def _find(args) -> tuple[source.Source, list[scoring.Clip], dict]:
-    src = _load(args)
-    print("analysing ...", file=sys.stderr)
-    score, signals = pipeline.analyze(src, scenes=not args.no_scenes)
-    clips = scoring.pick_clips(score, args.count, args.min_len, args.max_len)
-    print(f"signals used: {', '.join(signals)}", file=sys.stderr)
-    return src, clips, signals
+def _progress(stage: str, frac: float | None) -> None:
+    pct = f" {frac * 100:3.0f}%" if frac is not None else ""
+    print(f"\r\033[K{stage}{pct}", end="", file=sys.stderr, flush=True)
 
 
-def _table(clips: list[scoring.Clip]) -> None:
-    if not clips:
+def _table(results: list[pipeline.Result]) -> None:
+    print(file=sys.stderr)
+    if not results:
         print("no standout moments found")
-    for c in sorted(clips, key=lambda c: -c.score):
-        print(f"{live.fmt(c.start)} - {live.fmt(c.end)}  ({c.length:4.0f}s)  score {c.score:.2f}")
+    for r in sorted(results, key=lambda r: -r.score):
+        print(f"{live.fmt(r.start)} - {live.fmt(r.end)}  ({r.end - r.start:4.0f}s)  score {r.score:.2f}"
+              + (f"  {r.path}" if r.path else ""))
+
+
+def _run(args, cut: bool) -> list[pipeline.Result]:
+    s = _settings(args)
+    work = Path(args.work_dir)
+    try:
+        if source.is_url(args.input):
+            if cut:
+                return pipeline.clip_url(args.input, Path(args.out), work, s, _progress)[1]
+            return pipeline.find_url(args.input, work, s, _progress)[1]
+        path = Path(args.input)
+        if not path.exists():
+            sys.exit(f"no such file: {path}")
+        if cut:
+            return pipeline.clip_file(path, Path(args.out), s, _progress)[1]
+        return pipeline.find(source.Source(path=path, title=path.stem), s)
+    except Exception as e:  # yt-dlp raises many types; show the reason, not a traceback
+        sys.exit(f"\nfailed: {e}")
 
 
 def cmd_analyze(args) -> None:
-    _, clips, _ = _find(args)
+    results = _run(args, cut=False)
     if args.json:
-        print(json.dumps([vars(c) for c in clips], indent=2))
+        print(json.dumps([{"start": r.start, "end": r.end, "score": r.score, "text": r.text}
+                          for r in results], indent=2))
     else:
-        _table(clips)
+        _table(results)
 
 
 def cmd_clip(args) -> None:
-    src, clips, _ = _find(args)
-    _table(clips)
-    for path in pipeline.export(src, clips, Path(args.out), vertical=args.vertical):
-        print(f"wrote {path}")
+    _table(_run(args, cut=True))
 
 
 def cmd_live(args) -> None:
@@ -62,9 +72,21 @@ def cmd_live(args) -> None:
     print(f"{len(clips)} clip(s) written to {args.out}")
 
 
+def cmd_ui(args) -> None:
+    from . import server
+    server.serve(Path(args.dir).expanduser(), args.port, open_browser=not args.no_browser)
+
+
+def cmd_mcp(args) -> None:
+    try:
+        from . import mcp_server
+        mcp_server.main()
+    except ImportError:
+        sys.exit("the MCP server needs an extra package: pip install 'ytclipper[mcp]'")
+
+
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(prog="ytclipper", description=__doc__ or
-                                "Find and clip the best moments of YouTube videos and livestreams.")
+    p = argparse.ArgumentParser(prog="ytclipper", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def common(sp, finder: bool):
@@ -79,7 +101,10 @@ def main(argv: list[str] | None = None) -> None:
             sp.add_argument("--cookies", help="cookies.txt of your YouTube login (if YouTube asks to sign in)")
             sp.add_argument("--cookies-from-browser", metavar="BROWSER",
                             help="use your login from a browser, e.g. chrome or firefox")
-            sp.add_argument("--no-scenes", action="store_true", help="skip scene-cut detection (faster)")
+            sp.add_argument("--scenes", action="store_true",
+                            help="also use scene-cut detection (downloads the whole video: slower)")
+            sp.add_argument("--full-download", action="store_true",
+                            help="download the whole video instead of only the clips")
 
     a = sub.add_parser("analyze", help="list the best moments without cutting")
     common(a, True)
@@ -103,6 +128,15 @@ def main(argv: list[str] | None = None) -> None:
     l.add_argument("--warmup", type=float, default=60,
                    help="seconds to learn the stream's normal level before clipping")
     l.set_defaults(func=cmd_live)
+
+    u = sub.add_parser("ui", help="open the app in your browser")
+    u.add_argument("--port", type=int, default=8765)
+    u.add_argument("--dir", default="~/YTClipper", help="where clips are saved")
+    u.add_argument("--no-browser", action="store_true", help="do not open a browser window")
+    u.set_defaults(func=cmd_ui)
+
+    m = sub.add_parser("mcp", help="run as an MCP server for Claude")
+    m.set_defaults(func=cmd_mcp)
 
     args = p.parse_args(argv)
     args.func(args)

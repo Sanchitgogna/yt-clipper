@@ -45,3 +45,21 @@ def test_heatmap_and_chat_signals(tmp_path):
     f.write_text('{"replayChatItemAction": {"videoOffsetTimeMsec": "3500"}}\n'
                  'garbage\n{"replayChatItemAction": {"videoOffsetTimeMsec": "3900"}}\n')
     assert source.chat_signal(f, 10)[3] == 2
+
+
+def test_speech_signal_and_transcript(tmp_path):
+    f = tmp_path / "v.en.json3"
+    f.write_text('{"events": [{"tStartMs": 1000, "segs": [{"utf8": "hello"}, {"utf8": " there", "tOffsetMs": 400}]},'
+                 '{"tStartMs": 5000, "segs": [{"utf8": "[Music]"}]},'
+                 '{"tStartMs": 9000, "segs": [{"utf8": "wow insane!"}, {"utf8": "[Laughter]", "tOffsetMs": 900}]}]}')
+    words = source.load_captions(f)
+    sig = source.speech_signal(words, 12)
+    assert sig[5] == 0 and sig[9] > sig[1] > 0
+    assert source.text_between(words, 0, 12) == "hello there wow insane!"
+
+
+def test_snap_to_quiet_moves_edges_to_silence():
+    audio = np.full(100, 50.0)
+    audio[19] = audio[41] = 10          # quiet gaps just outside the rough window
+    (c,) = scoring.snap_to_quiet([scoring.Clip(20, 40, 30, 5)], audio, 10, 60)
+    assert (c.start, c.end) == (19, 42)

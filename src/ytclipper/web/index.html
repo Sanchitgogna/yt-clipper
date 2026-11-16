@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YT Clipper</title>
+<style>
+  :root {
+    --bg: #f6f4ef; --panel: #ffffff; --ink: #1b1a17; --muted: #6d6a62; --line: #e3dfd5;
+    --accent: #d6402b; --accent-ink: #ffffff; --soft: #f0ece3; --ok: #2f7d4f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151412; --panel: #1f1e1b; --ink: #f1eee7; --muted: #a09c92; --line: #33312c;
+      --accent: #f0563f; --accent-ink: #1a0b08; --soft: #292723; --ok: #6cc48d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 48px 16px 80px; }
+  header { margin-bottom: 28px; }
+  h1 { font-size: 30px; letter-spacing: -0.02em; margin: 0 0 4px; }
+  h1 span { color: var(--accent); }
+  header p { margin: 0; color: var(--muted); }
+
+  form { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  input[type=url] {
+    flex: 1 1 320px; min-width: 0; padding: 13px 14px; font: inherit; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  button {
+    font: inherit; font-weight: 600; padding: 13px 22px; border-radius: 10px; cursor: pointer;
+    border: 1px solid transparent; background: var(--accent); color: var(--accent-ink);
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  button.ghost { background: transparent; color: var(--ink); border-color: var(--line); font-weight: 500; padding: 8px 14px; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 14px; width: fit-content; }
+  .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); }
+  select, input[type=number] {
+    display: block; width: 100%; margin-top: 4px; padding: 9px 10px; font: inherit; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  }
+
+  #status { margin-top: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  #status[hidden] { display: none; }
+  .status-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  #title { font-weight: 600; overflow-wrap: anywhere; }
+  #stage { color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .bar { height: 6px; background: var(--soft); border-radius: 3px; overflow: hidden; margin-top: 12px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width .4s; }
+  .bar.busy i { width: 35%; animation: slide 1.3s ease-in-out infinite; }
+  .bar.off { display: none; }
+  @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .bar.busy i { animation: none; width: 100%; opacity: .4; } }
+  .live { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--accent-ink);
+    background: var(--accent); border-radius: 4px; padding: 1px 6px; margin-right: 8px; vertical-align: 2px; }
+  #error { color: var(--accent); margin-top: 10px; overflow-wrap: anywhere; }
+
+  #clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 22px; }
+  .clip { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+  .clip video { width: 100%; aspect-ratio: 16/9; background: #000; display: block; }
+  .clip.tall video { aspect-ratio: 9/16; }
+  .meta { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .meta-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .rank { font-weight: 700; }
+  .time { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .text { font-size: 14px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .meta a { margin-top: auto; text-align: center; text-decoration: none; font-weight: 600; font-size: 14px;
+    color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  .meta a:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>YT <span>Clipper</span></h1>
+    <p>Paste a YouTube video or livestream link. The best moments come back as clips.</p>
+  </header>
+
+  <form id="form">
+    <div class="row">
+      <input id="url" type="url" required placeholder="https://www.youtube.com/watch?v=…" aria-label="YouTube link" autofocus>
+      <button id="go" type="submit">Make clips</button>
+    </div>
+    <details>
+      <summary>Options</summary>
+      <div class="opts">
+        <label>How many clips
+          <select id="count"><option>3</option><option selected>5</option><option>8</option><option>12</option></select>
+        </label>
+        <label>Clip length
+          <select id="len">
+            <option value="10,30">Short (10–30s)</option>
+            <option value="15,60" selected>Medium (15–60s)</option>
+            <option value="30,120">Long (30s–2min)</option>
+          </select>
+        </label>
+        <label>Shape
+          <select id="vertical"><option value="">Original (wide)</option><option value="1">Vertical 9:16 for Shorts</option></select>
+        </label>
+        <label>Quality
+          <select id="quality"><option value="480">480p (fastest)</option><option value="720" selected>720p</option><option value="1080">1080p</option></select>
+        </label>
+        <label>Use my YouTube login
+          <select id="browser">
+            <option value="">Not needed</option><option value="chrome">From Chrome</option><option value="safari">From Safari</option>
+            <option value="firefox">From Firefox</option><option value="edge">From Edge</option><option value="brave">From Brave</option>
+          </select>
+        </label>
+      </div>
+    </details>
+  </form>
+
+  <section id="status" hidden aria-live="polite">
+    <div class="status-top">
+      <div>
+        <div id="title"></div>
+        <div id="stage"></div>
+      </div>
+      <div class="row">
+        <button class="ghost" id="stop" type="button" hidden>Stop</button>
+        <button class="ghost" id="open" type="button" hidden>Show folder</button>
+      </div>
+    </div>
+    <div class="bar" id="bar"><i></i></div>
+    <div id="error" hidden></div>
+  </section>
+
+  <section id="clips"></section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let job = null, timer = null, shown = 0;
+
+const fmt = s => {
+  s = Math.floor(s);
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
+};
+
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Something went wrong");
+  return data;
+}
+
+$("form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const [min_len, max_len] = $("len").value.split(",").map(Number);
+  clearInterval(timer);
+  $("clips").replaceChildren(); shown = 0;
+  $("error").hidden = true;
+  $("go").disabled = true;
+  try {
+    job = await api("/api/jobs", {
+      url: $("url").value, count: +$("count").value, min_len, max_len,
+      vertical: !!$("vertical").value, quality: +$("quality").value, browser: $("browser").value});
+    render(job);
+    timer = setInterval(poll, 1000);
+  } catch (err) {
+    $("status").hidden = false;
+    $("title").textContent = ""; $("stage").textContent = ""; $("bar").className = "bar off";
+    $("error").textContent = err.message; $("error").hidden = false;
+    $("go").disabled = false;
+  }
+});
+
+async function poll() {
+  try { job = await api(`/api/jobs/${job.id}`); } catch { return; }
+  render(job);
+  if (job.status !== "running") { clearInterval(timer); $("go").disabled = false; }
+}
+
+function render(j) {
+  $("status").hidden = false;
+  $("title").replaceChildren();
+  if (j.live) { const b = document.createElement("span"); b.className = "live"; b.textContent = "LIVE"; $("title").append(b); }
+  $("title").append(j.title || j.url);
+  const running = j.status === "running";
+  const n = j.clips.length;
+  $("stage").textContent = j.status === "error" ? "Could not finish" :
+    j.status === "done" && n ? `Done · ${n} clip${n > 1 ? "s" : ""}` :
+    j.live && running ? `${j.stage} · ${n} clip${n === 1 ? "" : "s"} so far` : j.stage;
+  $("bar").className = "bar" + (!running ? " off" : j.progress == null ? " busy" : "");
+  $("bar").firstElementChild.style.width = j.progress == null ? "" : Math.round(j.progress * 100) + "%";
+  $("stop").hidden = !(j.live && running);
+  $("open").hidden = !n;
+  $("error").hidden = !j.error; $("error").textContent = j.error;
+  for (; shown < n; shown++) $("clips").append(card(j.clips[shown], shown + 1, j.live));
+}
+
+function card(c, rank, live) {
+  const el = document.createElement("article");
+  el.className = "clip";
+  const v = document.createElement("video");
+  v.controls = true; v.preload = "metadata"; v.src = c.file; v.playsInline = true;
+  v.addEventListener("loadedmetadata", () => { if (v.videoHeight > v.videoWidth) el.classList.add("tall"); });
+  const meta = document.createElement("div"); meta.className = "meta";
+  const top = document.createElement("div"); top.className = "meta-top";
+  const r = document.createElement("span"); r.className = "rank"; r.textContent = live ? `Moment ${rank}` : `#${rank}`;
+  const t = document.createElement("span"); t.className = "time";
+  t.textContent = `${fmt(c.start)} – ${fmt(c.end)} · ${Math.round(c.end - c.start)}s`;
+  top.append(r, t); meta.append(top);
+  if (c.text) { const p = document.createElement("div"); p.className = "text"; p.textContent = c.text; meta.append(p); }
+  const a = document.createElement("a"); a.href = c.file + "?dl=1"; a.textContent = "Download";
+  meta.append(a); el.append(v, meta);
+  return el;
+}
+
+$("stop").addEventListener("click", () => api(`/api/jobs/${job.id}/stop`, {}));
+$("open").addEventListener("click", () => api(`/api/jobs/${job.id}/open`, {}));
+</script>
+</body>
+</html>

@@ -7,19 +7,18 @@ from .conftest import BURSTS
 
 def test_vod_pipeline_clips_the_bursts(video, tmp_path):
     src = source.Source(path=video, title="Sample video!")
-    score, signals = pipeline.analyze(src)
+    _, signals = pipeline.analyze(src)
     assert set(signals) == {"audio", "scenes"}
-    clips = scoring.pick_clips(score, count=3, min_len=10, max_len=30)
-    assert len(clips) == 2
-    for clip, (a, b) in zip(clips, BURSTS):
-        assert clip.start <= a and clip.end >= b
-    paths = pipeline.export(src, clips, tmp_path)
-    for path, clip in zip(paths, clips):
-        assert abs(media.duration(path) - clip.length) < 0.5
+    results = pipeline.find(src, pipeline.Settings(count=3, min_len=10, max_len=30))
+    assert len(results) == 2
+    for r, (a, b) in zip(results, BURSTS):
+        assert r.start <= a and r.end >= b
+    for r in pipeline.export(src, results, tmp_path):
+        assert abs(media.duration(r.path) - (r.end - r.start)) < 0.5
 
 
 def test_cli_vertical(video, tmp_path, capsys):
-    cli.main(["clip", str(video), "-n", "1", "-o", str(tmp_path), "--no-scenes", "--vertical"])
+    cli.main(["clip", str(video), "-n", "1", "-o", str(tmp_path), "--vertical"])
     (out,) = tmp_path.glob("*.mp4")
     size = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries",
                            "stream=width,height", "-of", "csv=p=0", str(out)],
