@@ -70,6 +70,7 @@ class App:
             min_len=max(5.0, float(body.get("min_len", 15))),
             max_len=min(600.0, float(body.get("max_len", 60))),
             vertical=bool(body.get("vertical")),
+            captions=bool(body.get("captions")),
             max_height=int(body.get("quality", 720)),
             auth=source.Auth(cookies_from_browser=browser),
         )

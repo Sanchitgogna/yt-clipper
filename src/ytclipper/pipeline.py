@@ -12,10 +12,14 @@ from pathlib import Path
 
 import numpy as np
 
-from . import media, scoring, source
+from . import captions, media, scoring, source
 from .source import Auth, Progress
 
 PAD = 3  # extra seconds fetched around a section so the precise cut has room
+
+
+class SectionsUnavailable(RuntimeError):
+    """The site would not serve parts of the video; the whole file is needed."""
 
 
 @dataclass
@@ -28,6 +32,7 @@ class Settings:
     scenes: bool = False       # scene-cut detection needs the whole video: slow
     chat: bool = True
     fast: bool = True          # analyse audio first, then download only the clips
+    captions: bool = False     # burn what is said into the picture
     auth: Auth = field(default_factory=Auth)
 
 
@@ -94,35 +99,61 @@ def _parallel(jobs: list, progress: Progress | None, stage: str) -> None:
             _say(progress, stage, done / len(jobs))
 
 
-def export(src: source.Source, results: list[Result], out_dir: Path, vertical: bool = False,
+def _subtitles(src: source.Source, r: Result, s: Settings) -> Path | None:
+    """Subtitle file for one clip: YouTube's captions if it has them, else speech-to-text."""
+    if not s.captions:
+        return None
+    length = r.end - r.start
+    words = [(t - r.start, w) for t, w in src.words() if r.start <= t < r.end and not w.startswith("[")]
+    if not words:
+        words = captions.transcribe(src.path, r.start, length)
+        r.text = r.text or " ".join(w for _, w in words)
+    r.path.parent.mkdir(parents=True, exist_ok=True)
+    return captions.write_ass(words, length, r.path.with_suffix(".ass"), s.vertical)
+
+
+def _cut(part: Path, start: float, src: source.Source, r: Result, s: Settings) -> None:
+    subs = _subtitles(src, r, s)
+    try:
+        media.cut(part, r.path, start, r.end - r.start, vertical=s.vertical, subtitles=subs)
+    finally:
+        if subs:
+            subs.unlink(missing_ok=True)
+
+
+def export(src: source.Source, results: list[Result], out_dir: Path, s: Settings,
            progress: Progress | None = None) -> list[Result]:
     """Cut clips out of a fully downloaded (or local) video."""
     for r, dst in zip(results, _names(src.title or src.path.stem, results, out_dir)):
         r.path = dst
     _say(progress, "Cutting clips", 0)
-    _parallel([lambda r=r: media.cut(src.path, r.path, r.start, r.end - r.start, vertical=vertical)
-               for r in results], progress, "Cutting clips")
+    _parallel([lambda r=r: _cut(src.path, r.start, src, r, s) for r in results],
+              progress, "Cutting clips")
     return results
 
 
-def export_sections(url: str, title: str, results: list[Result], out_dir: Path, work_dir: Path,
-                    s: Settings, progress: Progress | None = None) -> list[Result]:
-    """Download only the clip ranges of a video and trim them precisely."""
+def export_sections(url: str, src: source.Source, results: list[Result], out_dir: Path,
+                    work_dir: Path, s: Settings, progress: Progress | None = None) -> list[Result]:
+    """Download only the clip ranges of a video and trim them precisely.
+    `src` is the analysed audio: it supplies the title and the words for captions."""
     windows = [(max(0, math.floor(r.start) - PAD), math.ceil(r.end) + PAD) for r in results]
     _say(progress, "Downloading the best moments", 0)
-    parts = source.fetch_sections(url, windows, work_dir, s.max_height, s.auth, progress)
+    try:
+        parts = source.fetch_sections(url, windows, work_dir, s.max_height, s.auth, progress)
+    except Exception as e:
+        raise SectionsUnavailable(str(e)) from e
 
     def trim(r: Result, part: Path, window: tuple[int, int]) -> None:
         # A stream-copied section starts on an earlier keyframe, so its head is
         # unpredictable; its tail is not. Measure the clip back from the end.
-        length = r.end - r.start
-        start = max(0.0, media.duration(part) - (window[1] - r.end) - length)
-        media.cut(part, r.path, start, length, vertical=s.vertical)
+        start = max(0.0, media.duration(part) - (window[1] - r.end) - (r.end - r.start))
+        _cut(part, start, src, r, s)
 
-    for r, dst in zip(results, _names(title, results, out_dir)):
+    for r, dst in zip(results, _names(src.title, results, out_dir)):
         r.path = dst
-    _say(progress, "Cutting clips", 0)
-    _parallel([lambda a=a: trim(*a) for a in zip(results, parts, windows)], progress, "Cutting clips")
+    stage = "Cutting clips and adding captions" if s.captions else "Cutting clips"
+    _say(progress, stage, 0)
+    _parallel([lambda a=a: trim(*a) for a in zip(results, parts, windows)], progress, stage)
     return results
 
 
@@ -142,11 +173,11 @@ def clip_url(url: str, out_dir: Path, work_dir: Path, s: Settings,
         return src, results
     if s.fast and not s.scenes:
         try:
-            return src, export_sections(url, src.title, results, out_dir, work_dir, s, progress)
-        except Exception:
+            return src, export_sections(url, src, results, out_dir, work_dir, s, progress)
+        except SectionsUnavailable:
             # some sites cannot serve ranges; fall back to the whole video
             src.path = source.fetch(url, work_dir / "full", s.max_height, False, s.auth, progress).path
-    return src, export(src, results, out_dir, s.vertical, progress)
+    return src, export(src, results, out_dir, s, progress)
 
 
 def clip_file(path: Path, out_dir: Path, s: Settings,
@@ -154,7 +185,7 @@ def clip_file(path: Path, out_dir: Path, s: Settings,
     src = source.Source(path=path, title=path.stem)
     _say(progress, "Finding the best moments")
     results = find(src, s)
-    return src, export(src, results, out_dir, s.vertical, progress) if results else results
+    return src, export(src, results, out_dir, s, progress) if results else results
 
 
 def cleanup(work_dir: Path) -> None:

@@ -23,6 +23,11 @@ ytclipper ui
 Clips are saved in `~/YTClipper/clips`. Livestream links are detected automatically: the
 app watches the stream and adds clips as big moments happen, until you press Stop.
 
+**Captions:** set Captions to "On the video" in Options (or `--captions`) to burn what is
+said into each clip. YouTube's own captions are used when the video has them; otherwise the
+speech is transcribed on your computer (`pip install -e '.[captions]'`, included by the Mac
+launcher).
+
 If YouTube answers "Sign in to confirm you're not a bot" (common on servers and VPNs), open
 Options and choose your browser under "Use my YouTube login".
 
@@ -93,6 +98,7 @@ Every command also accepts a local media file instead of a URL.
 
 - `server.py`, `web/index.html` – the browser app
 - `mcp_server.py` – tools for Claude
+- `captions.py` – speech-to-text and burned-in captions
 - `source.py` – yt-dlp downloads; heatmap, chat and caption signals
 - `media.py` – ffmpeg: loudness, scene cuts, cutting
 - `scoring.py` – normalise/combine signals, pick and snap clip windows
@@ -109,7 +115,7 @@ pytest
 ## Roadmap
 
 - Live chat rate as a signal in live mode (currently loudness only)
-- Burned-in captions and auto-generated titles
+- Auto-generated titles
 - Smart vertical reframing (follow the face/action instead of centre crop)
 
 Only clip content you have the rights to use.

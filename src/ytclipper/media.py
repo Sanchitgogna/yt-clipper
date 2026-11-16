@@ -69,6 +69,7 @@ def cut(
     length: float,
     vertical: bool = False,
     concat_list: bool = False,
+    subtitles: Path | None = None,
 ) -> Path:
     """Cut [start, start+length) out of src, re-encoding for frame-accurate edges."""
     dst = Path(dst)
@@ -77,8 +78,14 @@ def cut(
     if concat_list:
         cmd += ["-f", "concat", "-safe", "0"]
     cmd += ["-ss", f"{start:.3f}", "-i", str(src), "-t", f"{length:.3f}"]
+    filters = []
     if vertical:  # centre-crop to 9:16 for Shorts / Reels / TikTok
-        cmd += ["-vf", "crop=ih*9/16:ih,scale=1080:1920"]
+        filters.append("crop=ih*9/16:ih,scale=1080:1920")
+    if subtitles:  # after the crop, so captions are never cut off
+        escaped = str(subtitles).replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+        filters.append(f"ass='{escaped}'")
+    if filters:
+        cmd += ["-vf", ",".join(filters)]
     cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
             "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(dst)]
     subprocess.run(cmd, check=True)

@@ -107,6 +107,9 @@
         <label>Shape
           <select id="vertical"><option value="">Original (wide)</option><option value="1">Vertical 9:16 for Shorts</option></select>
         </label>
+        <label>Captions
+          <select id="captions"><option value="">Off</option><option value="1">On the video</option></select>
+        </label>
         <label>Quality
           <select id="quality"><option value="480">480p (fastest)</option><option value="720" selected>720p</option><option value="1080">1080p</option></select>
         </label>
@@ -166,7 +169,7 @@ $("form").addEventListener("submit", async e => {
   try {
     job = await api("/api/jobs", {
       url: $("url").value, count: +$("count").value, min_len, max_len,
-      vertical: !!$("vertical").value, quality: +$("quality").value, browser: $("browser").value});
+      vertical: !!$("vertical").value, captions: !!$("captions").value, quality: +$("quality").value, browser: $("browser").value});
     render(job);
     timer = setInterval(poll, 1000);
   } catch (err) {

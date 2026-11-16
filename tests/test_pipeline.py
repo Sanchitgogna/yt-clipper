@@ -13,7 +13,7 @@ def test_vod_pipeline_clips_the_bursts(video, tmp_path):
     assert len(results) == 2
     for r, (a, b) in zip(results, BURSTS):
         assert r.start <= a and r.end >= b
-    for r in pipeline.export(src, results, tmp_path):
+    for r in pipeline.export(src, results, tmp_path, pipeline.Settings()):
         assert abs(media.duration(r.path) - (r.end - r.start)) < 0.5
 
 

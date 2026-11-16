@@ -15,6 +15,7 @@ def _settings(args) -> pipeline.Settings:
         count=args.count, min_len=args.min_len, max_len=args.max_len,
         vertical=getattr(args, "vertical", False), max_height=args.max_height,
         scenes=args.scenes, chat=not args.no_chat, fast=not args.full_download,
+        captions=getattr(args, "captions", False),
         auth=source.Auth(args.cookies, args.cookies_from_browser))
 
 
@@ -115,6 +116,7 @@ def main(argv: list[str] | None = None) -> None:
     common(c, True)
     c.add_argument("-o", "--out", default="clips")
     c.add_argument("--vertical", action="store_true", help="centre-crop to 9:16 (1080x1920)")
+    c.add_argument("--captions", action="store_true", help="burn what is said into the clips")
     c.set_defaults(func=cmd_clip)
 
     l = sub.add_parser("live", help="watch a livestream and clip moments as they happen")
