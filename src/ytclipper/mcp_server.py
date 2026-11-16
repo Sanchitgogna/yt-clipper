@@ -38,7 +38,8 @@ def build():
         (chrome, safari, firefox...) uses that browser's YouTube login if YouTube
         demands a sign-in.
         """
-        s = pipeline.Settings(count=count, min_len=min_seconds, max_len=max_seconds,
+        # claude=False: the Claude calling this tool is the one who judges the candidates
+        s = pipeline.Settings(count=count, min_len=min_seconds, max_len=max_seconds, claude=False,
                               auth=source.Auth(cookies_from_browser=browser_login or None))
         src, results = pipeline.find_url(url, _work(url), s)
         return {"title": src.title, "candidates": [

@@ -49,12 +49,23 @@ Every second of the video gets a highlight score built from several signals:
 | `chat`    | chat messages per second (live chat replay)               | past streams    |
 | `speech`  | captions: fast talking, hype words, [Laughter]/[Applause] | videos          |
 | `audio`   | loudness spikes (shouting, cheering, explosions)          | videos + live   |
+| `voice`   | where people are talking (when there are no captions)     | videos          |
 | `scenes`  | rate of hard cuts (opt-in, `--scenes`)                    | videos          |
 
 Each signal is normalised against the video's own typical level, weighted (audience
 signals count most) and combined. The highest peaks become clips, widened to include the
 build-up, and their edges are nudged to the nearest quiet moment so cuts do not land
 mid-sentence.
+
+**Choosing what is actually good.** Those signals only say that *something* happened. So the
+tool shortlists twice as many moments as you asked for, listens to each one (speech-to-text),
+moves its start and end to sentence boundaries, and then ranks them by what is said:
+
+- **With Claude** — add an Anthropic API key under Options in the app (or set
+  `ANTHROPIC_API_KEY`). Claude reads each candidate like an editor would, rates it 1–10 as a
+  standalone clip, drops the duds, and writes a title for each. Uses `claude-opus-5-5`; one
+  request per video. The key is stored in `~/.ytclipper.json`, readable only by you.
+- **Without a key** — a simple heuristic favours lively speech (reactions, questions, hype words).
 
 **Why it is fast:** only the audio track is downloaded for analysis, then only the chosen
 clip ranges of the video are fetched and cut, in parallel. A three-hour stream does not
@@ -106,6 +117,7 @@ Every command also accepts a local media file instead of a URL.
 
 - `server.py`, `web/index.html` – the browser app
 - `mcp_server.py` – tools for Claude
+- `judge.py` – Claude rates and titles the candidates
 - `captions.py` – speech-to-text and the animated caption renderer
 - `facecam.py` – finds a streamer's webcam overlay
 - `render.py` – vertical layout and encoding
@@ -125,7 +137,6 @@ pytest
 ## Roadmap
 
 - Live chat rate as a signal in live mode (currently loudness only)
-- Auto-generated titles
 - Round or borderless (green-screen) facecams, which have no frame to detect
 - Follow the action in the gameplay crop instead of a fixed centre crop
 

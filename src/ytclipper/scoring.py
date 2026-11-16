@@ -8,7 +8,7 @@ import numpy as np
 
 # How much each signal counts. Audience signals (what viewers replayed, when chat
 # exploded) are better evidence of a "good scene" than raw loudness or cuts.
-DEFAULT_WEIGHTS = {"heatmap": 1.5, "chat": 1.5, "audio": 1.0, "speech": 1.0, "scenes": 0.5}
+DEFAULT_WEIGHTS = {"heatmap": 1.5, "chat": 1.5, "audio": 1.0, "speech": 1.0, "voice": 1.0, "scenes": 0.5}
 # Smallest spread treated as meaningful, so a very steady signal does not turn
 # its own tiny wobble into "peaks" (audio is in dB).
 MIN_SCALE = {"audio": 1.5}

@@ -53,6 +53,29 @@ def transcribe(media_path: Path, start: float, length: float) -> list[Word]:
                 for seg in segments for w in seg.words or [] if w.word.strip()]
 
 
+def voice_activity(media_path: Path, chunk_seconds: int = 600) -> np.ndarray:
+    """Fraction of each second in which someone is speaking (no transcription: fast)."""
+    from faster_whisper.vad import get_speech_timestamps
+
+    rate = 16000
+    proc = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(media_path), "-map", "0:a:0?",
+                             "-ac", "1", "-ar", str(rate), "-f", "s16le", "-"],
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    out = []
+    while True:                                   # a few minutes at a time keeps memory flat
+        raw = proc.stdout.read(chunk_seconds * rate * 2)
+        if len(raw) < rate:
+            break
+        audio = np.frombuffer(raw[: len(raw) // 2 * 2], dtype=np.int16).astype(np.float32) / 32768.0
+        active = np.zeros(len(audio), dtype=np.float32)
+        for span in get_speech_timestamps(audio):
+            active[span["start"]:span["end"]] = 1
+        seconds = len(audio) // rate
+        out.append(active[: seconds * rate].reshape(seconds, rate).mean(axis=1))
+    proc.wait()
+    return np.concatenate(out) if out else np.zeros(0)
+
+
 @dataclass
 class Group:
     start: float

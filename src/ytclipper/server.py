@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import live, pipeline, source
+from . import judge, live, pipeline, source
 
 INDEX = Path(__file__).parent / "web" / "index.html"
 BROWSERS = {"chrome", "safari", "firefox", "edge", "brave"}
@@ -30,18 +30,19 @@ class Job:
     title: str = ""
     live: bool = False
     error: str = ""
+    notes: list[str] = field(default_factory=list)
     clips: list[dict] = field(default_factory=list)
     stop: threading.Event = field(default_factory=threading.Event)
 
     def view(self) -> dict:
         return {k: getattr(self, k) for k in
-                ("id", "url", "status", "stage", "progress", "title", "live", "error", "clips")} | {
+                ("id", "url", "status", "stage", "progress", "title", "live", "error", "notes", "clips")} | {
                 "folder": str(self.out_dir)}
 
     def add(self, start: float, end: float, score: float, path: Path, text: str = "",
-            facecam: bool = False) -> None:
+            facecam: bool = False, title: str = "", rating: int = 0, reason: str = "") -> None:
         self.clips.append({"start": start, "end": end, "score": round(score, 2), "text": text,
-                           "facecam": facecam,
+                           "facecam": facecam, "title": title, "rating": rating, "reason": reason,
                            "name": path.name, "file": f"/files/{self.id}/{path.name}"})
 
 
@@ -73,12 +74,13 @@ class App:
             max_len=min(600.0, float(body.get("max_len", 60))),
             captions=bool(body.get("captions", True)),
             facecam=bool(body.get("facecam", True)),
+            claude=bool(body.get("claude", True)),
             max_height=int(body.get("quality", 1080)),
             auth=source.Auth(cookies_from_browser=browser),
         )
         s.max_len = max(s.max_len, s.min_len)
         job_id = uuid.uuid4().hex[:10]
-        job = Job(job_id, url, self.base / "clips" / job_id)
+        job = Job(job_id, url, self.base / "clips" / job_id, notes=s.notes)
         self.jobs[job_id] = job
         threading.Thread(target=self._run, args=(job, s), daemon=True).start()
         return job
@@ -98,7 +100,7 @@ class App:
                 return
             _, results = pipeline.clip_url(job.url, job.out_dir, work, s, progress)
             for r in sorted(results, key=lambda r: -r.score):
-                job.add(r.start, r.end, r.score, r.path, r.text, r.facecam)
+                job.add(r.start, r.end, r.score, r.path, r.text, r.facecam, r.title, r.rating, r.reason)
             job.status, job.stage = "done", "Done" if results else "No standout moments found"
         except Exception as e:
             job.status, job.error = "error", friendly(e)
@@ -154,6 +156,8 @@ def make_handler(app: App):
                 return self._file(INDEX, download=False)
             if parts[:2] == ["api", "jobs"] and len(parts) == 3 and parts[2] in app.jobs:
                 return self._json(app.jobs[parts[2]].view())
+            if parts == ["api", "settings"]:
+                return self._json({"claude": judge.source()})
             if parts[0] == "files" and len(parts) == 3 and parts[1] in app.jobs:
                 path = app.jobs[parts[1]].out_dir / Path(parts[2]).name
                 if path.is_file():
@@ -171,6 +175,10 @@ def make_handler(app: App):
             except ValueError:
                 return self._json({"error": "bad json"}, 400)
             parts = self.path.strip("/").split("/")
+            if parts == ["api", "settings"]:
+                if judge.source() != "environment":
+                    judge.save_key(str(body.get("anthropic_api_key", "")).strip())
+                return self._json({"claude": judge.source()})
             if parts == ["api", "jobs"]:
                 try:
                     return self._json(app.start(body).view())

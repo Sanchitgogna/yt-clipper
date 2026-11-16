@@ -11,7 +11,7 @@ def test_vod_pipeline_clips_the_bursts(video, tmp_path):
     src = source.Source(path=video, title="Sample video!")
     _, signals = pipeline.analyze(src)
     assert set(signals) == {"audio", "scenes"}
-    results = pipeline.find(src, pipeline.Settings(count=3, min_len=10, max_len=30))
+    results = pipeline.find(src, pipeline.Settings(count=3, min_len=10, max_len=30, smart=False))
     assert len(results) == 2
     for r, (a, b) in zip(results, BURSTS):
         assert r.start <= a and r.end >= b
@@ -83,3 +83,47 @@ def test_facecam_layout_stacks_webcam_over_game(video, tmp_path):
 def test_no_facecam_in_plain_footage(video):
     from ytclipper import facecam
     assert facecam.detect(video, 0, 20).cam is None
+
+
+def _candidates():
+    R = pipeline.Result
+    quiet = R(10, 30, 3.0, words=[(11, 11.4, "let"), (11.4, 11.8, "me"), (11.8, 12.5, "check.")])
+    funny = R(50, 70, 2.0, words=[(49.2, 49.6, "Wait"), (49.6, 50.3, "what?!"), (51, 51.5, "No"),
+                                  (51.5, 52, "way!"), (69.0, 69.6, "Insane!")])
+    for r in (quiet, funny):
+        r.text = " ".join(w for *_, w in r.words)
+    return quiet, funny
+
+
+def test_ranking_prefers_lively_speech_without_claude(monkeypatch):
+    from ytclipper import judge
+    monkeypatch.setattr(judge, "source", lambda: None)
+    quiet, funny = _candidates()
+    quiet.score = funny.score = 2.0
+    ranked = pipeline._rank(source.Source(path=None), [quiet, funny], pipeline.Settings())
+    assert ranked[0] is funny
+
+
+def test_claude_rating_decides_and_failure_falls_back(monkeypatch):
+    from ytclipper import judge
+    monkeypatch.setattr(judge, "source", lambda: "saved")
+    monkeypatch.setattr(judge, "rate", lambda title, cands: {
+        0: judge.Verdict(2, "Checking settings", "housekeeping"),
+        1: judge.Verdict(9, "He did not see that coming", "big reaction")})
+    quiet, funny = _candidates()
+    s = pipeline.Settings()
+    ranked = pipeline._rank(source.Source(path=None, title="Stream"), [quiet, funny], s)
+    assert ranked == [funny] and funny.title == "He did not see that coming" and funny.rating == 9
+
+    def boom(*_):
+        raise RuntimeError("offline")
+    monkeypatch.setattr(judge, "rate", boom)
+    quiet, funny = _candidates()
+    ranked = pipeline._rank(source.Source(path=None), [quiet, funny], s)
+    assert len(ranked) == 2 and "ranked without it" in s.notes[0]
+
+
+def test_clip_edges_move_to_sentence_boundaries():
+    _, funny = _candidates()
+    pipeline._snap_to_sentences(funny, pipeline.Settings(min_len=10, max_len=30))
+    assert abs(funny.start - (49.2 - 0.15)) < 1e-6 and abs(funny.end - (69.6 + 0.3)) < 1e-6

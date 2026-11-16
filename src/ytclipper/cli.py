@@ -15,7 +15,7 @@ def _settings(args) -> pipeline.Settings:
         count=args.count, min_len=args.min_len, max_len=args.max_len,
         max_height=args.max_height, facecam=not getattr(args, "no_facecam", False),
         scenes=args.scenes, chat=not args.no_chat, fast=not args.full_download,
-        captions=not getattr(args, "no_captions", False),
+        captions=not getattr(args, "no_captions", False), claude=not args.no_claude,
         auth=source.Auth(args.cookies, args.cookies_from_browser))
 
 
@@ -29,12 +29,12 @@ def _table(results: list[pipeline.Result]) -> None:
     if not results:
         print("no standout moments found")
     for r in sorted(results, key=lambda r: -r.score):
-        print(f"{live.fmt(r.start)} - {live.fmt(r.end)}  ({r.end - r.start:4.0f}s)  score {r.score:.2f}"
-              + (f"  {r.path}" if r.path else ""))
+        rated = f"Claude {r.rating}/10" if r.rating else f"score {r.score:.2f}"
+        print(f"{live.fmt(r.start)} - {live.fmt(r.end)}  ({r.end - r.start:4.0f}s)  {rated}"
+              + (f"  {r.title}" if r.title else "") + (f"  {r.path}" if r.path else ""))
 
 
-def _run(args, cut: bool) -> list[pipeline.Result]:
-    s = _settings(args)
+def _run_with(args, s: pipeline.Settings, cut: bool) -> list[pipeline.Result]:
     work = Path(args.work_dir)
     try:
         if source.is_url(args.input):
@@ -46,15 +46,24 @@ def _run(args, cut: bool) -> list[pipeline.Result]:
             sys.exit(f"no such file: {path}")
         if cut:
             return pipeline.clip_file(path, Path(args.out), s, _progress)[1]
-        return pipeline.find(source.Source(path=path, title=path.stem), s)
+        return pipeline.find(source.Source(path=path, title=path.stem), s, _progress)
     except Exception as e:  # yt-dlp raises many types; show the reason, not a traceback
         sys.exit(f"\nfailed: {e}")
+
+
+def _run(args, cut: bool) -> list[pipeline.Result]:
+    s = _settings(args)
+    results = _run_with(args, s, cut)
+    for note in s.notes:
+        print(f"\nnote: {note}", file=sys.stderr)
+    return results
 
 
 def cmd_analyze(args) -> None:
     results = _run(args, cut=False)
     if args.json:
-        print(json.dumps([{"start": r.start, "end": r.end, "score": r.score, "text": r.text}
+        print(json.dumps([{"start": r.start, "end": r.end, "score": r.score, "title": r.title,
+                           "rating": r.rating, "reason": r.reason, "text": r.text}
                           for r in results], indent=2))
     else:
         _table(results)
@@ -103,6 +112,8 @@ def main(argv: list[str] | None = None) -> None:
             sp.add_argument("--cookies", help="cookies.txt of your YouTube login (if YouTube asks to sign in)")
             sp.add_argument("--cookies-from-browser", metavar="BROWSER",
                             help="use your login from a browser, e.g. chrome or firefox")
+            sp.add_argument("--no-claude", action="store_true",
+                            help="do not ask Claude to choose and title clips (used when ANTHROPIC_API_KEY is set)")
             sp.add_argument("--scenes", action="store_true",
                             help="also use scene-cut detection (downloads the whole video: slower)")
             sp.add_argument("--full-download", action="store_true",

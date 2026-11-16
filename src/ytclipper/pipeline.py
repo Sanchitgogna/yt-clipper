@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import captions, facecam, media, render, scoring, source
+from . import captions, facecam, judge, media, render, scoring, source
 from .source import Auth, Progress
 
 PAD = 3  # extra seconds fetched around a section so the precise cut has room
@@ -33,6 +33,9 @@ class Settings:
     fast: bool = True          # analyse audio first, then download only the clips
     captions: bool = True      # animated captions of what is said
     facecam: bool = True       # put a streamer's webcam on top when there is one
+    smart: bool = True         # read what is said in the candidates before choosing
+    claude: bool = True        # let Claude choose and title them, when an API key is set
+    notes: list[str] = field(default_factory=list)   # things the user should know about this run
     auth: Auth = field(default_factory=Auth)
 
 
@@ -44,6 +47,10 @@ class Result:
     path: Path | None = None
     text: str = ""             # what is said in the clip, when captions exist
     facecam: bool = False      # a webcam overlay was found and placed on top
+    words: list | None = None  # (start, end, word) in video time, once listened to
+    title: str = ""            # Claude's title for the clip
+    rating: int = 0            # Claude's 1-10 rating
+    reason: str = ""           # ... and why
 
 
 def _say(progress: Progress | None, stage: str, frac: float | None = None) -> None:
@@ -51,7 +58,8 @@ def _say(progress: Progress | None, stage: str, frac: float | None = None) -> No
         progress(stage, frac)
 
 
-def analyze(src: source.Source, scenes: bool = True) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+def analyze(src: source.Source, scenes: bool = True,
+            voice: bool = False) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Return (highlight score per second, the raw signals it was built from)."""
     audio = media.audio_energy(src.path)
     n = max(len(audio), int(media.duration(src.path)))
@@ -67,19 +75,100 @@ def analyze(src: source.Source, scenes: bool = True) -> tuple[np.ndarray, dict[s
     words = src.words()
     if words:
         signals["speech"] = source.speech_signal(words, n)
+    elif voice and len(audio):
+        # no captions to read: at least find where people talk, so that spoken moments
+        # compete with loud ones (the candidates are transcribed later)
+        active = captions.voice_activity(src.path)
+        if active.sum() > 0:
+            signals["voice"] = active
     if not signals:
         return np.zeros(n), signals
     return scoring.combine(signals), signals
 
 
-def find(src: source.Source, s: Settings) -> list[Result]:
-    score, signals = analyze(src, scenes=s.scenes)
-    clips = scoring.pick_clips(score, s.count, s.min_len, s.max_len)
+PAD_LISTEN = 2.5   # seconds heard beyond each edge, so a clip can grow to a sentence boundary
+
+
+def _listen(src: source.Source, r: Result) -> None:
+    """Fill in r.words: what is said in and just around the candidate."""
+    a, b = max(0.0, r.start - PAD_LISTEN), r.end + PAD_LISTEN
+    words = [w for w in src.words() if a <= w[0] < b and not w[2].startswith("[")]
+    if not words:
+        words = [(a + x, a + y, w) for x, y, w in captions.transcribe(src.path, a, b - a)]
+    r.words = words
+
+
+def _snap_to_sentences(r: Result, s: Settings) -> None:
+    """Start on the first word of a sentence and end on the last word of one."""
+    words = r.words or []
+    starts = [w[0] for i, w in enumerate(words)
+              if i == 0 or words[i - 1][2][-1] in ".?!" or w[0] - words[i - 1][1] > 0.7]
+    ends = [w[1] for i, w in enumerate(words)
+            if i == len(words) - 1 or w[2][-1] in ".?!" or words[i + 1][0] - w[1] > 0.7]
+    start = min(starts, key=lambda t: abs(t - r.start), default=r.start) - 0.15
+    end = min(ends, key=lambda t: abs(t - r.end), default=r.end) + 0.3
+    if abs(start - r.start) <= PAD_LISTEN and abs(end - r.end) <= PAD_LISTEN \
+            and s.min_len <= end - start <= s.max_len + PAD_LISTEN:
+        r.start, r.end = max(0.0, start), end
+
+
+def _interest(r: Result) -> float:
+    """Rough measure of how much is going on in the words, per second."""
+    points = 0.0
+    for _, _, w in r.words or []:
+        token = w.lower().strip(".,!?\"'")
+        points += 1 + 4 * (token in source._HYPE) + 2 * w.count("!") + w.count("?")
+    return points / max(1.0, r.end - r.start)
+
+
+def _rank(src: source.Source, pool: list[Result], s: Settings) -> list[Result]:
+    """Order candidates best first: Claude's judgement if available, else heuristics."""
+    if s.claude and judge.source():
+        try:
+            verdicts = judge.rate(src.title, [
+                {"index": i, "start": r.start, "end": r.end, "transcript": r.text}
+                for i, r in enumerate(pool)])
+            for i, r in enumerate(pool):
+                if i in verdicts:
+                    v = verdicts[i]
+                    r.title, r.rating, r.reason = v.title, v.rating, v.reason
+            top = max(r.score for r in pool) or 1.0
+            for r in pool:   # the rating decides; the signal score only breaks ties
+                r.score = (r.rating or 5) + 0.5 * r.score / top
+            keep = [r for r in pool if r.rating != 0 and r.rating > 2] or pool
+            return sorted(keep, key=lambda r: -r.score)
+        except Exception as e:
+            s.notes.append(f"Claude could not rate the clips ({judge.explain(e)}), "
+                           "so they were ranked without it.")
+    interest = np.array([_interest(r) for r in pool])
+    if interest.std() > 1e-9:
+        z = np.clip((interest - interest.mean()) / interest.std(), -1, 2)
+        for r, boost in zip(pool, z):
+            r.score *= 1 + 0.25 * float(boost)
+    return sorted(pool, key=lambda r: -r.score)
+
+
+def find(src: source.Source, s: Settings, progress: Progress | None = None) -> list[Result]:
+    """The best moments of a video, in the order they happen."""
+    score, signals = analyze(src, scenes=s.scenes, voice=s.smart)
+    # look at more candidates than needed, so the ones chosen are picked for what is in them
+    pool_size = min(12, s.count * 2) if s.smart else s.count
+    clips = scoring.pick_clips(score, pool_size, s.min_len, s.max_len)
     if "audio" in signals:
         clips = scoring.snap_to_quiet(clips, signals["audio"], s.min_len, s.max_len)
+    pool = [Result(c.start, c.end, c.score) for c in clips]
     words = src.words()
-    return [Result(c.start, c.end, c.score, text=source.text_between(words, c.start, c.end))
-            for c in clips]
+    if not s.smart:
+        for r in pool:
+            r.text = source.text_between(words, r.start, r.end)
+        return pool
+    for i, r in enumerate(pool):
+        _say(progress, "Listening to the best moments", i / len(pool))
+        _listen(src, r)
+        _snap_to_sentences(r, s)
+        r.text = source.text_between(r.words, r.start, r.end, limit=1500)
+    _say(progress, "Choosing the best clips")
+    return sorted(_rank(src, pool, s)[:s.count], key=lambda r: r.start)
 
 
 def slug(text: str, limit: int = 40) -> str:
@@ -88,7 +177,8 @@ def slug(text: str, limit: int = 40) -> str:
 
 def _names(title: str, results: list[Result], out_dir: Path) -> list[Path]:
     ranked = sorted(results, key=lambda r: -r.score)
-    return [out_dir / f"{slug(title)}_top{ranked.index(r) + 1:02d}_{int(r.start):05d}s.mp4"
+    return [out_dir / (f"{slug(title, 30)}_top{ranked.index(r) + 1:02d}_"
+                       + (slug(r.title) if r.title else f"{int(r.start):05d}s") + ".mp4")
             for r in results]
 
 
@@ -102,9 +192,10 @@ def _parallel(jobs: list, progress: Progress | None, stage: str) -> None:
 
 def _words(src: source.Source, part: Path, start: float, r: Result) -> list[captions.Word]:
     """The clip's words: YouTube's captions if it has them, else speech-to-text."""
-    words = [(a - r.start, b - r.start, w) for a, b, w in src.words()
+    known = r.words if r.words is not None else src.words()
+    words = [(a - r.start, b - r.start, w) for a, b, w in known
              if r.start <= a < r.end and not w.startswith("[")]
-    if not words:
+    if not words and r.words is None:
         words = captions.transcribe(part, start, r.end - r.start)
         r.text = r.text or " ".join(w for *_, w in words)
     return words
@@ -160,7 +251,7 @@ def find_url(url: str, work_dir: Path, s: Settings,
     src = source.fetch(url, work_dir, s.max_height, s.chat, s.auth, progress,
                        audio_only=s.fast and not s.scenes)
     _say(progress, "Finding the best moments")
-    return src, find(src, s)
+    return src, find(src, s, progress)
 
 
 def clip_url(url: str, out_dir: Path, work_dir: Path, s: Settings,
@@ -182,7 +273,7 @@ def clip_file(path: Path, out_dir: Path, s: Settings,
               progress: Progress | None = None) -> tuple[source.Source, list[Result]]:
     src = source.Source(path=path, title=path.stem)
     _say(progress, "Finding the best moments")
-    results = find(src, s)
+    results = find(src, s, progress)
     return src, export(src, results, out_dir, s, progress) if results else results
 
 

@@ -50,6 +50,12 @@
     background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
   }
 
+  .claude { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; padding-top: 14px;
+    border-top: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+  .claude input { padding: 8px 10px; font: inherit; font-size: 14px; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; width: 260px; max-width: 100%; }
+  .title { font-weight: 600; line-height: 1.3; }
+  #notes { color: var(--muted); font-size: 14px; margin-top: 10px; }
   #status { margin-top: 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
   #status[hidden] { display: none; }
   .status-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -119,6 +125,14 @@
           </select>
         </label>
       </div>
+      <div class="claude" id="claude">
+        <span id="claude-state"></span>
+        <span id="claude-form" hidden>
+          <input id="key" type="password" placeholder="Anthropic API key (sk-ant-…)" aria-label="Anthropic API key" autocomplete="off">
+          <button class="ghost" id="key-save" type="button">Save</button>
+        </span>
+        <button class="ghost" id="key-toggle" type="button"></button>
+      </div>
     </details>
   </form>
 
@@ -135,6 +149,7 @@
     </div>
     <div class="bar" id="bar"><i></i></div>
     <div id="error" hidden></div>
+    <div id="notes" hidden></div>
   </section>
 
   <section id="clips"></section>
@@ -200,6 +215,7 @@ function render(j) {
   $("stop").hidden = !(j.live && running);
   $("open").hidden = !n;
   $("error").hidden = !j.error; $("error").textContent = j.error;
+  $("notes").hidden = !j.notes.length; $("notes").textContent = j.notes.join(" ");
   for (; shown < n; shown++) $("clips").append(card(j.clips[shown], shown + 1, j.live));
 }
 
@@ -214,12 +230,32 @@ function card(c, rank, live) {
   const t = document.createElement("span"); t.className = "time";
   t.textContent = `${fmt(c.start)} – ${fmt(c.end)} · ${Math.round(c.end - c.start)}s`;
   top.append(r, t); meta.append(top);
+  if (c.title) { const h = document.createElement("div"); h.className = "title"; h.textContent = c.title; meta.append(h); }
+  if (c.rating) { const g = document.createElement("div"); g.className = "time"; g.textContent = `Claude: ${c.rating}/10 · ${c.reason}`; meta.append(g); }
   if (c.facecam) { const f = document.createElement("div"); f.className = "time"; f.textContent = "Facecam on top"; meta.append(f); }
-  if (c.text) { const p = document.createElement("div"); p.className = "text"; p.textContent = c.text; meta.append(p); }
+  if (c.text && !c.title) { const p = document.createElement("div"); p.className = "text"; p.textContent = c.text; meta.append(p); }
   const a = document.createElement("a"); a.href = c.file + "?dl=1"; a.textContent = "Download";
   meta.append(a); el.append(v, meta);
   return el;
 }
+
+async function settings(body) {
+  const st = await api("/api/settings", body);
+  const on = !!st.claude;
+  $("claude-state").textContent = on
+    ? "Claude chooses and titles your clips" + (st.claude === "environment" ? " (key from your environment)." : ".")
+    : "Add an Anthropic API key to let Claude choose the best clips and write their titles.";
+  $("key-toggle").textContent = on ? "Remove key" : "Add key";
+  $("key-toggle").hidden = st.claude === "environment";
+  $("claude-form").hidden = true; $("key").value = "";
+  $("key-toggle").dataset.on = on ? "1" : "";
+}
+$("key-toggle").addEventListener("click", () => {
+  if ($("key-toggle").dataset.on) settings({anthropic_api_key: ""});
+  else { $("claude-form").hidden = false; $("key-toggle").hidden = true; $("key").focus(); }
+});
+$("key-save").addEventListener("click", () => settings({anthropic_api_key: $("key").value}));
+settings();
 
 $("stop").addEventListener("click", () => api(`/api/jobs/${job.id}/stop`, {}));
 $("open").addEventListener("click", () => api(`/api/jobs/${job.id}/open`, {}));

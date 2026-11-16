@@ -236,7 +236,7 @@ def speech_signal(words: list[tuple[float, float, str]], n_seconds: int) -> np.n
     return out
 
 
-def text_between(words: list[tuple[float, float, str]], start: float, end: float, limit: int = 400) -> str:
+def text_between(words, start: float, end: float, limit: int = 400) -> str:
     text = " ".join(w for t, _, w in words if start <= t < end and not w.startswith("["))
     text = re.sub(r"\s+", " ", text).strip()
     return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "…"
