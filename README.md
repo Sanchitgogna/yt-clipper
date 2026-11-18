@@ -8,7 +8,7 @@ Runs on your own computer, in your browser.
 ## Start it
 
 **Mac:** double-click `YTClipper.command`. The first run sets everything up, then the app
-opens in your browser. (It uses Homebrew to install `ffmpeg` and `node` if they are missing.)
+opens in your browser. (It uses Homebrew to install Python 3.10+, `ffmpeg` and `node` if they are missing; macOS's built-in Python is too old.)
 
 **Any computer** (needs Python 3.10+, `ffmpeg`, and `node` or `deno`):
 
