@@ -91,3 +91,25 @@ def test_error_messages_are_cleaned_and_bad_logins_are_reported(monkeypatch):
     assert source.browser_login_problem(source.Auth()) is None
     problem = source.browser_login_problem(source.Auth(cookies_from_browser="chrome"))
     assert problem and "\x1b" not in problem       # no Chrome in the test machine
+
+
+def test_connect_claude_merges_config_and_keeps_a_backup(tmp_path):
+    import json
+    from ytclipper import connect
+    cfg = tmp_path / "Claude" / "claude_desktop_config.json"
+    cfg.parent.mkdir()
+    cfg.write_text('{"mcpServers": {"other": {"command": "x"}}, "theme": "dark"}')
+    path, existed = connect.connect(cfg)
+    data = json.loads(cfg.read_text())
+    assert not existed and data["theme"] == "dark" and data["mcpServers"]["other"] == {"command": "x"}
+    assert data["mcpServers"]["ytclipper"]["args"] == ["-m", "ytclipper.cli", "mcp"]
+    assert len(list(cfg.parent.glob("*.backup-*"))) == 1
+    assert connect.connect(cfg)[1] is True
+    assert connect.disconnect(cfg) and "ytclipper" not in json.loads(cfg.read_text())["mcpServers"]
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json")
+    try:
+        connect.connect(bad)
+        assert False, "should refuse to touch a broken config"
+    except RuntimeError:
+        assert bad.read_text() == "{not json"

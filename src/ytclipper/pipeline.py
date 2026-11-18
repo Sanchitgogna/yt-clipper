@@ -194,7 +194,7 @@ def _parallel(jobs: list, progress: Progress | None, stage: str) -> None:
 def _words(src: source.Source, part: Path, start: float, r: Result) -> list[captions.Word]:
     """The clip's words: YouTube's captions if it has them, else speech-to-text."""
     known = r.words if r.words is not None else src.words()
-    words = [(a - r.start, b - r.start, w) for a, b, w in known
+    words = [(a - r.start, min(b, r.end) - r.start, w) for a, b, w in known
              if r.start <= a < r.end and not w.startswith("[")]
     if not words and r.words is None:
         words = captions.transcribe(part, start, r.end - r.start)

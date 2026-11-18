@@ -71,31 +71,42 @@ moves its start and end to sentence boundaries, and then ranks them by what is s
 clip ranges of the video are fetched and cut, in parallel. A three-hour stream does not
 need a three-hour download.
 
-## Use it from Claude (MCP)
+## Use it from a Claude chat (no API key)
 
-`ytclipper mcp` is an MCP server, so Claude can pick the clips itself: it gets the candidate
-moments with their transcripts, decides which are actually good, and cuts them.
+Claude can run YT Clipper for you from the Claude desktop app, on your normal Claude
+plan: no API key and no per-clip cost. You paste a link in a chat; Claude finds the
+moments, reads what is said in each, picks the good ones as an editor would, titles
+them, and the clips are made on your computer.
 
-```bash
-pip install -e '.[mcp]'
-```
+**Set up once (Mac):**
 
-Claude Code:
+1. Install the Claude desktop app from https://claude.ai/download and sign in.
+2. Double-click **`Connect to Claude.command`** in this folder. It sets everything up (the
+   same way `YTClipper.command` does) and adds YT Clipper to the Claude app's settings,
+   keeping a backup of them.
+3. Quit the Claude app completely (Cmd-Q) and open it again.
+
+Keep this folder where it is: the Claude app runs YT Clipper from here.
+
+**Use it:** in a new chat, ask for example
+
+> Make 3 clips from https://www.youtube.com/watch?v=...
+
+The first time, the Claude app asks to allow YT Clipper's tools; allow them. Claude
+reports progress while the video is analysed (a few minutes for long videos), tells you
+which moments it picked and why, and gives you the files, saved in `~/YTClipper/clips`.
+Ask it to "open the clips folder" to see them in Finder.
+
+To remove it: `.venv/bin/ytclipper connect-claude --remove`, then restart the Claude app.
+
+Claude Code users can add it with:
 
 ```bash
 claude mcp add ytclipper -- /full/path/to/yt-clipper/.venv/bin/ytclipper mcp
 ```
 
-Claude Desktop (`claude_desktop_config.json`):
-
-```json
-{"mcpServers": {"ytclipper": {"command": "/full/path/to/yt-clipper/.venv/bin/ytclipper", "args": ["mcp"]}}}
-```
-
-Then ask: *"Find the funniest moments in <link> and make clips of the best three."*
-
-Tools: `find_highlights(url, count, min_seconds, max_seconds)` and
-`export_clips(url, clips, captions, facecam)`.
+Tools: `find_moments` and `make_clips` start background jobs, `check_job` waits for one
+and returns candidates or files, `open_clips_folder` shows the results.
 
 ## Command line
 
@@ -116,7 +127,8 @@ Every command also accepts a local media file instead of a URL.
 ## Layout
 
 - `server.py`, `web/index.html` – the browser app
-- `mcp_server.py` – tools for Claude
+- `mcp_server.py` – tools for Claude in the chat
+- `connect.py` – adds those tools to the Claude desktop app
 - `judge.py` – Claude rates and titles the candidates
 - `captions.py` – speech-to-text and the animated caption renderer
 - `facecam.py` – finds a streamer's webcam overlay

@@ -64,7 +64,8 @@ def render(src: Path, dst: Path, start: float, length: float, layout: Layout | N
             "-r", str(FPS), "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
             "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart",
             "-t", f"{length:.3f}", str(dst)]
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if caps else None)
+    # stdout is never ffmpeg's: under the MCP server it carries the protocol
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if caps else None, stdout=subprocess.DEVNULL)
     if caps:
         try:
             for i in range(caps.frames):

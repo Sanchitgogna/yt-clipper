@@ -99,6 +99,20 @@ def cmd_mcp(args) -> None:
         sys.exit("the MCP server needs an extra package: pip install 'ytclipper[mcp]'")
 
 
+def cmd_connect(args) -> None:
+    from . import connect
+    if args.remove:
+        print("Removed YT Clipper from the Claude app." if connect.disconnect()
+              else "YT Clipper was not connected.")
+        return
+    try:
+        path, existed = connect.connect()
+    except RuntimeError as e:
+        sys.exit(str(e))
+    print(("Updated" if existed else "Added") + f" YT Clipper in {path}")
+    print("Now quit the Claude app completely (Cmd-Q) and open it again.")
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="ytclipper", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -158,6 +172,10 @@ def main(argv: list[str] | None = None) -> None:
 
     m = sub.add_parser("mcp", help="run as an MCP server for Claude")
     m.set_defaults(func=cmd_mcp)
+
+    k = sub.add_parser("connect-claude", help="add YT Clipper to the Claude desktop app")
+    k.add_argument("--remove", action="store_true", help="take it out again")
+    k.set_defaults(func=cmd_connect)
 
     args = p.parse_args(argv)
     args.func(args)
