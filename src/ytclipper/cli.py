@@ -36,6 +36,9 @@ def _table(results: list[pipeline.Result]) -> None:
 
 def _run_with(args, s: pipeline.Settings, cut: bool) -> list[pipeline.Result]:
     work = Path(args.work_dir)
+    if s.auth.cookies_from_browser and source.browser_login_problem(s.auth):
+        s.notes.append(source.login_help(s.auth.cookies_from_browser))
+        s.auth = source.Auth(cookies=s.auth.cookies)
     try:
         if source.is_url(args.input):
             if cut:
@@ -48,7 +51,7 @@ def _run_with(args, s: pipeline.Settings, cut: bool) -> list[pipeline.Result]:
             return pipeline.clip_file(path, Path(args.out), s, _progress)[1]
         return pipeline.find(source.Source(path=path, title=path.stem), s, _progress)
     except Exception as e:  # yt-dlp raises many types; show the reason, not a traceback
-        sys.exit(f"\nfailed: {e}")
+        sys.exit(f"\nfailed: {source.clean_error(e)}")
 
 
 def _run(args, cut: bool) -> list[pipeline.Result]:

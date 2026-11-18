@@ -46,14 +46,17 @@ class Job:
                            "name": path.name, "file": f"/files/{self.id}/{path.name}"})
 
 
-def friendly(err: Exception) -> str:
-    msg = str(err)
+def friendly(err: Exception, s: pipeline.Settings | None = None) -> str:
+    msg = source.clean_error(err)
     if "Sign in to confirm" in msg or "HTTP Error 403" in msg:
+        if s and s.login_failed:
+            return ("YouTube wants a sign-in for this video, and your browser login could not be read. "
+                    "Follow the note above to give Terminal access, then try again.")
         return ("YouTube refused the download and wants a sign-in. Open Options, pick the browser "
                 "where you are logged in to YouTube under “Use my YouTube login”, and try again.")
     if "ffmpeg" in msg.lower() and "not found" in msg.lower():
         return "ffmpeg is not installed. On a Mac: brew install ffmpeg"
-    return msg.replace("ERROR: ", "")[:500]
+    return msg[:500]
 
 
 class App:
@@ -92,6 +95,13 @@ class App:
             job.stage, job.progress = stage, frac
 
         try:
+            if s.auth.cookies_from_browser:
+                progress("Reading your browser login", None)
+                problem = source.browser_login_problem(s.auth)
+                if problem:
+                    s.notes.append(source.login_help(s.auth.cookies_from_browser))
+                    s.auth = source.Auth()
+                    s.login_failed = True
             progress("Reading video info", None)
             info = source.probe(job.url, work, s.auth)
             job.title = info.get("title") or ""
@@ -103,7 +113,7 @@ class App:
                 job.add(r.start, r.end, r.score, r.path, r.text, r.facecam, r.title, r.rating, r.reason)
             job.status, job.stage = "done", "Done" if results else "No standout moments found"
         except Exception as e:
-            job.status, job.error = "error", friendly(e)
+            job.status, job.error = "error", friendly(e, s)
         finally:
             pipeline.cleanup(work)
 

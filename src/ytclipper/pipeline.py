@@ -36,6 +36,7 @@ class Settings:
     smart: bool = True         # read what is said in the candidates before choosing
     claude: bool = True        # let Claude choose and title them, when an API key is set
     notes: list[str] = field(default_factory=list)   # things the user should know about this run
+    login_failed: bool = False                         # a browser login was chosen but unreadable
     auth: Auth = field(default_factory=Auth)
 
 

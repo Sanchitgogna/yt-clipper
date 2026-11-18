@@ -34,6 +34,47 @@ class Source:
         return load_captions(self.captions_path) if self.captions_path else []
 
 
+_ANSI = re.compile(r"\x1b?\[[0-9;]*m")
+
+
+def clean_error(err: Exception | str) -> str:
+    """An error message without terminal colour codes or yt-dlp's ERROR: prefix."""
+    text = _ANSI.sub("", str(err)).strip()
+    return re.sub(r"^(ERROR:\s*)+", "", text)
+
+
+def browser_login_problem(auth: Auth | None) -> str | None:
+    """Why the chosen browser's login cannot be read, or None when it can (or none is chosen)."""
+    if not auth or not auth.cookies_from_browser:
+        return None
+    from yt_dlp.cookies import extract_cookies_from_browser
+
+    class Quiet:
+        def debug(self, *a, **k): pass
+        info = warning = debug
+
+        def error(self, message, *a, **k):
+            raise RuntimeError(message)
+
+        def progress_bar(self):
+            return None
+
+    try:
+        extract_cookies_from_browser(auth.cookies_from_browser, logger=Quiet())
+        return None
+    except Exception as e:
+        return clean_error(e) or type(e).__name__
+
+
+def login_help(browser: str) -> str:
+    name = browser.capitalize()
+    return (f"Could not read your {name} login, so this ran without it. On a Mac this usually means "
+            "macOS is keeping other apps' data private: open System Settings → Privacy & Security → "
+            "Full Disk Access, switch on Terminal, then quit Terminal and double-click YTClipper.command "
+            f"again. If macOS asks to let Terminal use \"{name} Safe Storage\", choose Allow. "
+            "Most videos download fine without a login, so you only need this if YouTube asks you to sign in.")
+
+
 def is_url(s: str) -> bool:
     return s.startswith(("http://", "https://"))
 

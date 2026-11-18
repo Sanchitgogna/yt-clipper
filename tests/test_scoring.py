@@ -82,3 +82,12 @@ def test_caption_groups_and_frames():
     shown = Image.frombytes("RGBA", size, r.frame(int(0.4 * r.fps)))
     red = [p for p in shown.getdata() if p[0] > 200 and p[1] < 80 and p[3] > 200]
     assert len(red) > 500                                                # the highlight box is up
+
+
+def test_error_messages_are_cleaned_and_bad_logins_are_reported(monkeypatch):
+    raw = '\x1b[0;31mERROR:\x1b[0m could not find chrome cookies database in "/x"'
+    assert source.clean_error(raw) == 'could not find chrome cookies database in "/x"'
+    assert source.clean_error('[0;31mERROR: [0m Sign in') == "Sign in"
+    assert source.browser_login_problem(source.Auth()) is None
+    problem = source.browser_login_problem(source.Auth(cookies_from_browser="chrome"))
+    assert problem and "\x1b" not in problem       # no Chrome in the test machine
