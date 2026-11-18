@@ -37,5 +37,10 @@ if [ ! -x .venv/bin/ytclipper ]; then
   rm -rf .venv
   "$PY" -m venv .venv || fail "Could not create the Python environment."
   .venv/bin/python -m pip install -q --upgrade pip || fail "Could not update pip."
+fi
+# (re)install whenever the list of dependencies changed, e.g. after an update
+if ! cmp -s pyproject.toml .venv/installed-pyproject.toml; then
+  echo "Installing YT Clipper's components..."
   .venv/bin/python -m pip install -q -e . || { rm -rf .venv; fail "Setup failed (see the message above)."; }
+  cp pyproject.toml .venv/installed-pyproject.toml
 fi

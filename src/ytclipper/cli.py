@@ -96,7 +96,7 @@ def cmd_mcp(args) -> None:
         from . import mcp_server
         mcp_server.main()
     except ImportError:
-        sys.exit("the MCP server needs an extra package: pip install 'ytclipper[mcp]'")
+        sys.exit("the MCP server's package is missing; reinstall with: pip install -e .")
 
 
 def cmd_connect(args) -> None:
